@@ -20,6 +20,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--no-audio", action="store_true", help="validate/drop audio without sound output")
     result.add_argument("--dry-run", action="store_true", help="log key events instead of injecting them")
     result.add_argument("--no-mdns", action="store_true", help="disable service discovery advertisement")
+    result.add_argument("--record", type=Path, help="also write received PCM to this WAV file (diagnostic)")
     result.add_argument("-v", "--verbose", action="store_true")
     return result
 
@@ -35,6 +36,7 @@ async def run(args: argparse.Namespace) -> None:
         no_audio=args.no_audio,
         dry_run=args.dry_run,
         advertise=not args.no_mdns,
+        record_path=args.record,
     )
     await app.start()
     stop = asyncio.Event()

@@ -50,6 +50,7 @@ class BridgeApp:
         no_audio: bool = False,
         dry_run: bool = False,
         advertise: bool = True,
+        record_path: Path | None = None,
         pair_code_factory: Callable[[], str] | None = None,
     ) -> None:
         self.host = host
@@ -57,6 +58,10 @@ class BridgeApp:
         self.udp_port = udp_port
         self.config = BridgeConfig(config_path)
         self.keyboard = KeyInjector(dry_run=dry_run)
+        # Diagnostic tap: raw device PCM (pre-jitter) straight to a WAV file so
+        # the mic->UDP->bridge path can be verified without BlackHole/Typeless.
+        self._record_path = record_path
+        self._record_bytes = bytearray()
         self.audio = (
             NullAudioOutput(jitter_ms)
             if no_audio
@@ -98,7 +103,25 @@ class BridgeApp:
             self.config.mac_name,
         )
 
+    def _write_wav(self) -> None:
+        if self._record_path is None or not self._record_bytes:
+            return
+        import wave
+
+        with wave.open(str(self._record_path), "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(16000)
+            wav.writeframes(bytes(self._record_bytes))
+        LOG.info(
+            "wrote %d samples (%.1fs) to %s",
+            len(self._record_bytes) // 2,
+            len(self._record_bytes) / 2 / 16000,
+            self._record_path,
+        )
+
     async def stop(self) -> None:
+        self._write_wav()
         if self.service_info is not None and self.zeroconf is not None:
             try:
                 await self.zeroconf.async_unregister_service(self.service_info)
@@ -344,6 +367,8 @@ class BridgeApp:
             except ProtocolError:
                 continue
             self.audio.feed(packet.sequence, packet.payload)
+            if self._record_path is not None:
+                self._record_bytes.extend(packet.payload)
             return
         LOG.debug("ignored unauthenticated UDP audio from %s", peer_ip)
 

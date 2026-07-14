@@ -129,9 +129,11 @@ bool AudioTransmitter::micStart() {
   write(0x13, 0x10);
   write(0x1B, 0x0A);  // HPF
   write(0x1C, 0x6A);  // DC offset cancel
-  write(0x17, 0xBF);  // ADC volume 0 dB
+  write(0x17, 0xFF);  // ADC digital volume: max — the analog MEMS mic is quiet;
+                      // at 0xBF speech peaked ~350/32767. 0xFF lifts it into a
+                      // healthy STT range (verified: clear speech, peak ~28k).
   write(0x15, 0x40);  // ADC ramp rate
-  write(0x14, 0x1A);  // analog MIC, moderate PGA gain
+  write(0x14, 0x1A);  // analog MIC, max analog PGA gain (nibble 0xA = +30dB)
   write(0x37, 0x48);
   write(0x44, 0x08);
   write(0x45, 0x00);
