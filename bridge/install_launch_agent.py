@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import os
+import plistlib
+import subprocess
+import sys
+from pathlib import Path
+
+LABEL = "local.cardbridge.service"
+
+
+def plist_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+
+
+def run_launchctl(*arguments: str) -> None:
+    subprocess.run(["launchctl", *arguments], check=False)
+
+
+def install() -> None:
+    bridge_dir = Path(__file__).resolve().parent
+    config_dir = Path.home() / ".cardbridge"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    path = plist_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "Label": LABEL,
+        "ProgramArguments": [sys.executable, "-m", "cardbridge"],
+        "WorkingDirectory": str(bridge_dir),
+        "EnvironmentVariables": {"PYTHONPATH": str(bridge_dir)},
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "ProcessType": "Interactive",
+        "StandardOutPath": str(config_dir / "bridge.log"),
+        "StandardErrorPath": str(config_dir / "bridge-error.log"),
+    }
+    with path.open("wb") as handle:
+        plistlib.dump(payload, handle)
+    os.chmod(path, 0o644)
+    domain = f"gui/{os.getuid()}"
+    run_launchctl("bootout", domain, str(path))
+    subprocess.run(["launchctl", "bootstrap", domain, str(path)], check=True)
+    print(f"Installed and started {LABEL}: {path}")
+    print(f"Logs: {config_dir / 'bridge.log'}")
+
+
+def uninstall() -> None:
+    path = plist_path()
+    run_launchctl("bootout", f"gui/{os.getuid()}", str(path))
+    path.unlink(missing_ok=True)
+    print(f"Removed {LABEL}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Install/uninstall CardBridge LaunchAgent")
+    parser.add_argument("action", choices=("install", "uninstall"))
+    args = parser.parse_args()
+    install() if args.action == "install" else uninstall()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,2 +1,9 @@
 .pio/
 .DS_Store
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.fake_device.json
+bridge/.venv/
+bridge/cardbridge.egg-info/

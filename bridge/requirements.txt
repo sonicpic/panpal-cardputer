@@ -1,0 +1,5 @@
+numpy>=1.24
+sounddevice>=0.4.6
+zeroconf>=0.131
+pyobjc-framework-ApplicationServices>=10.0; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
