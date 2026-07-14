@@ -56,54 +56,31 @@ void AudioTransmitter::senderTaskEntry(void* argument) {
 // read PCM with the IDF i2s_std driver. ES8311 register sequences mirror
 // M5Unified's `_microphone_enabled_cb_cardputer_adv`.
 bool AudioTransmitter::micStart() {
-  // Full ES8311 init ported verbatim from the official espressif/es8311
-  // driver (es8311_init + clock coeff row {mclk=1024000, rate=16000} +
-  // es8311_microphone_config). MCLK comes from BCLK (the ADV leaves the MCLK
-  // pin unrouted), which the official table only supports at BCLK = 64*fs =
-  // 1.024 MHz → 32-bit stereo slots on the I2S side. Our earlier 16-bit
-  // slots (512 kHz) are an unsupported ratio — the ADC never clocked and
-  // SDOUT sat idle-high.
-  auto write = [](uint8_t reg, uint8_t value) {
-    M5.In_I2C.writeRegister8(0x18, reg, value, 100000);
-  };
-  write(0x00, 0x1F);  // reset
-  vTaskDelay(pdMS_TO_TICKS(20));
-  write(0x00, 0x00);
-  write(0x00, 0x80);  // power on, slave mode
-  write(0x01, 0xBF);  // all clocks on, MCLK from BCLK pin
-  write(0x02, 0x10);  // pre_div=1, pre_multi=x4 (1.024MHz * 4 = 4.096MHz = 256fs)
-  write(0x03, 0x10);  // fs_mode=0, adc_osr=0x10
-  write(0x04, 0x10);  // dac_osr
-  write(0x05, 0x00);  // adc_div=1, dac_div=1
-  write(0x06, 0x03);  // bclk_div=4
-  write(0x07, 0x00);  // lrck_h
-  write(0x08, 0xFF);  // lrck_l (LRCK = BCLK/256... per official table)
-  write(0x09, 0x10);  // SDP IN: 32-bit
-  write(0x0A, 0x10);  // SDP OUT: 32-bit
-  write(0x0D, 0x01);  // power up analog circuitry
-  write(0x0E, 0x02);  // enable analog PGA + ADC modulator
-  write(0x12, 0x00);  // power up DAC (official init does this even for capture)
-  write(0x13, 0x10);  // enable output to HP drive
-  write(0x1C, 0x6A);  // ADC equalizer bypass, cancel DC offset
-  write(0x37, 0x08);  // bypass DAC equalizer
-  write(0x17, 0xC8);  // ADC gain (official es8311_microphone_config value)
-  write(0x14, 0x1A);  // analog mic, max PGA gain
+  // Working recipe from vc1235-ui/vibe-cardputer (same board, same bug, solved).
+  // Three non-obvious requirements, all mandatory:
+  //   1. gpio_reset_pin() first — clear M5Unified's residual I2S pin state.
+  //   2. MCLK routed to GPIO0 (physically unwired) — with I2S_GPIO_UNUSED the
+  //      IDF 5.x clock tree doesn't fully init and DIN floats high (0xFFFF).
+  //   3. Start I2S (BCLK running) BEFORE configuring the ES8311, so its PLL
+  //      can lock onto BCLK. 16-bit STEREO slots → BCLK = 512kHz, ES8311
+  //      pre_multi x8 → 4.096MHz internal MCLK, /256 → 16kHz.
+
+  gpio_reset_pin(GPIO_NUM_41);
+  gpio_reset_pin(GPIO_NUM_43);
+  gpio_reset_pin(GPIO_NUM_46);
 
   i2s_chan_config_t channelConfig =
       I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-  channelConfig.dma_desc_num = 4;
-  channelConfig.dma_frame_num = kAudioSamplesPerFrame;
+  channelConfig.auto_clear = true;
   if (i2s_new_channel(&channelConfig, nullptr, &rxChannel_) != ESP_OK) {
     return false;
   }
   i2s_std_config_t standardConfig = {
       .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kAudioSampleRate),
-      // 32-bit stereo slots → BCLK = 16k*32*2 = 1.024MHz, the only
-      // BCLK-as-MCLK ratio the ES8311 supports at 16 kHz.
-      .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT,
+      .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
                                                       I2S_SLOT_MODE_STEREO),
       .gpio_cfg = {
-          .mclk = I2S_GPIO_UNUSED,  // ES8311 derives MCLK from BCLK (reg 0x01)
+          .mclk = GPIO_NUM_0,  // unwired, but forces clock-tree init
           .bclk = GPIO_NUM_41,
           .ws = GPIO_NUM_43,
           .dout = I2S_GPIO_UNUSED,
@@ -117,6 +94,48 @@ bool AudioTransmitter::micStart() {
     rxChannel_ = nullptr;
     return false;
   }
+  vTaskDelay(pdMS_TO_TICKS(200));  // let BCLK stabilize before codec PLL lock
+
+  // ES8311 register sequence ported verbatim from the working firmware.
+  auto write = [](uint8_t reg, uint8_t value) {
+    M5.In_I2C.writeRegister8(0x18, reg, value, 100000);
+  };
+  write(0x01, 0x30);
+  write(0x02, 0x00);
+  write(0x03, 0x10);
+  write(0x16, 0x24);  // MIC gain
+  write(0x04, 0x10);
+  write(0x05, 0x00);
+  write(0x0B, 0x00);
+  write(0x0C, 0x00);
+  write(0x10, 0x1F);
+  write(0x11, 0x7F);
+  write(0x00, 0x80);  // CSM power on, slave mode
+  vTaskDelay(pdMS_TO_TICKS(20));
+  write(0x01, 0xBF);  // clock source = BCLK, all clocks on
+  // Clock coefficients: pre_div=1, pre_multi=x8, lrck_div=256 (BCLK 512k → 16k)
+  write(0x02, 0x18);  // (0<<5) | (3<<3): pre_div-1=0, pre_multi=x8
+  write(0x05, 0x00);
+  write(0x03, 0x10);  // adc_osr
+  write(0x04, 0x10);
+  write(0x07, 0x00);
+  write(0x08, 0xFF);  // lrck_l = 255
+  write(0x06, 0x03);  // bclk_div-1
+  write(0x09, 0x0C);  // SDP in: Philips, 16-bit
+  write(0x0A, 0x0C);  // SDP out: 16-bit, ADC output enabled
+  write(0x0D, 0x01);  // power up analog
+  write(0x0E, 0x02);
+  write(0x12, 0x00);
+  write(0x13, 0x10);
+  write(0x1B, 0x0A);  // HPF
+  write(0x1C, 0x6A);  // DC offset cancel
+  write(0x17, 0xBF);  // ADC volume 0 dB
+  write(0x15, 0x40);  // ADC ramp rate
+  write(0x14, 0x1A);  // analog MIC, moderate PGA gain
+  write(0x37, 0x48);
+  write(0x44, 0x08);
+  write(0x45, 0x00);
+  vTaskDelay(pdMS_TO_TICKS(50));
   return true;
 }
 
@@ -163,8 +182,8 @@ void AudioTransmitter::captureLoop() {
     AudioFrame frame{};
     frame.sequence = sequence++;
     frame.timestampMs = millis();
-    // Read interleaved 32-bit L/R stereo; keep the left slot's top 16 bits.
-    static int32_t stereo[kAudioSamplesPerFrame * 2];
+    // Read interleaved 16-bit L/R stereo; keep the left slot (ES8311 ADC).
+    static int16_t stereo[kAudioSamplesPerFrame * 2];
     size_t received = 0;
     bool readOk = true;
     while (received < sizeof(stereo)) {
@@ -183,12 +202,9 @@ void AudioTransmitter::captureLoop() {
       continue;
     }
     for (size_t i = 0; i < kAudioSamplesPerFrame; ++i) {
-      frame.samples[i] = static_cast<int16_t>(stereo[i * 2] >> 16);
+      frame.samples[i] = stereo[i * 2];
     }
-    for (size_t i = 0; i < 32; ++i) {
-      debugStereo_[i * 2] = static_cast<int16_t>(stereo[i * 2] >> 16);
-      debugStereo_[i * 2 + 1] = static_cast<int16_t>(stereo[i * 2 + 1] >> 16);
-    }
+    for (size_t i = 0; i < 64; ++i) debugStereo_[i] = stereo[i];
     ++captured_;
     if (!streamingAllowed()) continue;
 

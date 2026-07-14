@@ -3,6 +3,7 @@
 #include <M5Cardputer.h>
 #include <WiFiUdp.h>
 #include <driver/i2s_std.h>
+#include <driver/gpio.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
