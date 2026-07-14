@@ -20,7 +20,7 @@ static void printSelfCheck() {
   Serial.printf("Sketch used   : %u bytes\n", ESP.getSketchSize());
   Serial.printf("Sketch free   : %u bytes\n", ESP.getFreeSketchSpace());
   Serial.println("==============================================");
-  Serial.println("(PSRAM shows 0 until we enable it in platformio.ini — next step)");
+  Serial.println("(no PSRAM on Cardputer ADV — 512KB SRAM only, confirmed vs official specs)");
 }
 
 void setup() {
