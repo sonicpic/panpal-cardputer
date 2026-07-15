@@ -637,12 +637,15 @@ void DeviceUi::drawCodex() {
     }
   }
 
-  // Both RPG-style limits live beside the pet, inside the same 90px stage.
-  const bool live = pairing_.agentOnline();
-  drawQuotaHud(6, live ? pairing_.agentQuota().weeklyRemaining : -1,
-               "HP W", 0xF9E7);
-  drawQuotaHud(162, live ? pairing_.agentQuota().fiveHourRemaining : -1,
-               "MP 5H", 0x05FF);
+  // ChatGPT OAuth exposes subscription windows. API key and custom-provider
+  // sessions keep the pet/status UI but omit the quota HUD entirely.
+  if (pairing_.agentQuota().available) {
+    const bool live = pairing_.agentOnline();
+    drawQuotaHud(6, live ? pairing_.agentQuota().weeklyRemaining : -1,
+                 "HP W", 0xF9E7);
+    drawQuotaHud(162, live ? pairing_.agentQuota().fiveHourRemaining : -1,
+                 "MP 5H", 0x05FF);
+  }
   pet_.draw(canvas_, visual, 84, 28, millis());
 
   if (pairing_.agentCount() > 1) {

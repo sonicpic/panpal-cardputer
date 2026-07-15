@@ -69,6 +69,8 @@ struct AgentSession {
 };
 
 struct AgentQuota {
+  // ChatGPT OAuth has subscription windows; API/custom-provider mode does not.
+  bool available = false;
   // -1 means the server did not report that quota window.
   int8_t weeklyRemaining = -1;
   int8_t fiveHourRemaining = -1;

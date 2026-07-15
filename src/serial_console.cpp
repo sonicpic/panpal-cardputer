@@ -87,10 +87,12 @@ void SerialConsole::handle(const String& line) {
     printComputers();
   } else if (verb == "agents") {
     const AgentQuota& quota = pairing_.agentQuota();
-    Serial.printf("[agents] online=%d count=%u focus=%s weekly=%d five_hour=%d\n",
-                  pairing_.agentOnline(), pairing_.agentCount(),
-                  pairing_.agentFocusId().c_str(), quota.weeklyRemaining,
-                  quota.fiveHourRemaining);
+    Serial.printf(
+        "[agents] online=%d quota_available=%d count=%u focus=%s weekly=%d "
+        "five_hour=%d\n",
+        pairing_.agentOnline(), quota.available, pairing_.agentCount(),
+        pairing_.agentFocusId().c_str(), quota.weeklyRemaining,
+        quota.fiveHourRemaining);
     for (size_t i = 0; i < pairing_.agentCount(); ++i) {
       const AgentSession& agent = pairing_.agent(i);
       Serial.printf("[agents] %u %s unread=%d project=\"%s\" title=\"%s\" activity=\"%s\"\n",

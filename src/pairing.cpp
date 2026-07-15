@@ -347,8 +347,18 @@ void PairingManager::parseAgentSnapshot(JsonDocument& document) {
   agentSeq_ = sequence;
   agentFocusId_ = document["focus_id"].as<String>();
   agentFocusSeq_ = document["focus_seq"] | 0U;
-  agentQuota_.weeklyRemaining = quotaRemaining(document["quota"]["weekly"]);
-  agentQuota_.fiveHourRemaining = quotaRemaining(document["quota"]["five_hour"]);
+  JsonVariantConst quota = document["quota"];
+  // Infer availability for older bridges that predate the explicit flag.
+  agentQuota_.available = quota["available"].is<bool>()
+                                ? quota["available"].as<bool>()
+                                : (!quota["weekly"].isNull() ||
+                                   !quota["five_hour"].isNull());
+  agentQuota_.weeklyRemaining = agentQuota_.available
+                                    ? quotaRemaining(quota["weekly"])
+                                    : -1;
+  agentQuota_.fiveHourRemaining = agentQuota_.available
+                                      ? quotaRemaining(quota["five_hour"])
+                                      : -1;
 
   agentCount_ = 0;
   for (JsonObjectConst item : document["items"].as<JsonArrayConst>()) {

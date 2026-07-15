@@ -75,6 +75,7 @@ class AgentStore:
         self.focus_seq = 0
         self.weekly: QuotaWindow | None = None
         self.five_hour: QuotaWindow | None = None
+        self.quota_available = False
         self.seq = 0
         self._on_change = on_change
 
@@ -182,7 +183,21 @@ class AgentStore:
         self._trim()
         self._changed()
 
+    def set_quota_available(self, available: bool) -> None:
+        available = bool(available)
+        changed = available != self.quota_available
+        if changed or not available:
+            # Never carry subscription windows across an auth-mode change.
+            changed = changed or self.weekly is not None or self.five_hour is not None
+            self.weekly = None
+            self.five_hour = None
+        self.quota_available = available
+        if changed:
+            self._changed()
+
     def update_rate_limits(self, result: dict[str, Any]) -> None:
+        if not self.quota_available:
+            return
         buckets = result.get("rateLimitsByLimitId")
         snapshot: dict[str, Any] | None = None
         if isinstance(buckets, dict):
@@ -254,8 +269,13 @@ class AgentStore:
             "focus_id": self.focus_id,
             "focus_seq": self.focus_seq,
             "quota": {
-                "weekly": self.weekly.as_dict() if self.weekly else None,
-                "five_hour": self.five_hour.as_dict() if self.five_hour else None,
+                "available": self.quota_available,
+                "weekly": self.weekly.as_dict()
+                if self.quota_available and self.weekly
+                else None,
+                "five_hour": self.five_hour.as_dict()
+                if self.quota_available and self.five_hour
+                else None,
             },
             "items": [session.as_dict() for session in selected],
         }

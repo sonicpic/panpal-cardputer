@@ -47,6 +47,7 @@ class AgentStoreTests(unittest.TestCase):
 
     def test_rate_limit_windows_are_classified_by_duration(self) -> None:
         store = AgentStore()
+        store.set_quota_available(True)
         store.update_rate_limits(
             {
                 "rateLimitsByLimitId": {
@@ -62,8 +63,44 @@ class AgentStoreTests(unittest.TestCase):
             }
         )
         snapshot = store.snapshot()
+        self.assertTrue(snapshot["quota"]["available"])
         self.assertEqual(snapshot["quota"]["weekly"]["remaining"], 45)
         self.assertIsNone(snapshot["quota"]["five_hour"])
+
+    def test_api_mode_hides_and_clears_subscription_quota(self) -> None:
+        store = AgentStore()
+        store.set_quota_available(True)
+        store.update_rate_limits(
+            {
+                "rateLimits": {
+                    "primary": {
+                        "usedPercent": 10,
+                        "windowDurationMins": 300,
+                    },
+                    "secondary": {
+                        "usedPercent": 20,
+                        "windowDurationMins": 10_080,
+                    },
+                }
+            }
+        )
+        self.assertIsNotNone(store.snapshot()["quota"]["weekly"])
+
+        store.set_quota_available(False)
+        store.update_rate_limits(
+            {
+                "rateLimits": {
+                    "primary": {
+                        "usedPercent": 99,
+                        "windowDurationMins": 300,
+                    }
+                }
+            }
+        )
+        quota = store.snapshot()["quota"]
+        self.assertFalse(quota["available"])
+        self.assertIsNone(quota["weekly"])
+        self.assertIsNone(quota["five_hour"])
 
     def test_tool_events_produce_short_status_text(self) -> None:
         store = AgentStore()
@@ -103,6 +140,23 @@ class AgentStoreTests(unittest.TestCase):
 
     def test_worst_case_cjk_snapshot_fits_control_line(self) -> None:
         store = AgentStore()
+        store.set_quota_available(True)
+        store.update_rate_limits(
+            {
+                "rateLimits": {
+                    "primary": {
+                        "usedPercent": 0,
+                        "windowDurationMins": 300,
+                        "resetsAt": 2_147_483_647,
+                    },
+                    "secondary": {
+                        "usedPercent": 100,
+                        "windowDurationMins": 10_080,
+                        "resetsAt": 2_147_483_647,
+                    },
+                }
+            }
+        )
         for index in range(8):
             session_id = str(index) * 36
             store.sessions[session_id] = AgentSession(

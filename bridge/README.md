@@ -59,7 +59,7 @@ python install_launch_agent.py uninstall
 
 ## 5. Enable Codex live status
 
-Session names/projects and account limits come from a separate read-only official Codex App Server. Real-time state comes from official lifecycle Hooks, reported by a fail-open local script over UDP `127.0.0.1:7790`. No prompt text, transcript, tool arguments, or `auth.json` contents are sent to CardBridge.
+Session names/projects come from a separate read-only official Codex App Server in every local authentication mode. ChatGPT OAuth additionally exposes its weekly/5-hour subscription limits; API key and custom-provider modes keep Session Pet active but hide the quota HUD. Real-time state comes from official lifecycle Hooks, reported by a fail-open local script over UDP `127.0.0.1:7790`. No prompt text, transcript, tool arguments, or `auth.json` contents are sent to CardBridge.
 
 Preview the merged user-level hook configuration first:
 

@@ -1,6 +1,6 @@
 # CardBridge for Cardputer ADV
 
-CardBridge turns an M5Stack Cardputer ADV into a WiFi microphone, keyboard, and Codex session companion for macOS. The firmware streams authenticated 16 kHz PCM audio and explicit key down/up events to the companion service in `bridge/`; its Codex page shows the latest user-focused task, animated state, weekly/5-hour limits, and up to eight switchable sessions. Claude remains a placeholder.
+CardBridge turns an M5Stack Cardputer ADV into a WiFi microphone, keyboard, and Codex session companion for macOS. The firmware streams authenticated 16 kHz PCM audio and explicit key down/up events to the companion service in `bridge/`; its Codex page shows the latest user-focused task, animated state, and up to eight switchable sessions. ChatGPT OAuth also shows weekly/5-hour subscription limits, while API key and custom-provider modes hide that quota HUD. Claude remains a placeholder.
 
 The authoritative product requirements and acceptance criteria are in [`docs/GOAL.md`](docs/GOAL.md). Mac installation, BlackHole and Typeless setup, simulator use, and service operation are documented in [`bridge/README.md`](bridge/README.md).
 

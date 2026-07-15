@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -11,13 +12,63 @@ from typing import Any
 from .agents import AgentStore
 
 LOG = logging.getLogger("cardbridge.codex")
+APP_SERVER_STREAM_LIMIT = 4 * 1024 * 1024
+
+
+def find_codex_candidates(
+    *,
+    path_lookup: Callable[[str], str | None] | None = None,
+    home: Path | None = None,
+    bundled: Path | None = None,
+) -> list[str]:
+    """Return usable Codex executables in compatibility-first order.
+
+    The ChatGPT-bundled binary can use a different model-provider contract from
+    the user's CLI installation. Prefer the CLI that owns the active config,
+    while retaining the bundled binary as a fallback for OAuth installations.
+    """
+
+    lookup = path_lookup or shutil.which
+    user_home = home or Path.home()
+    bundled_path = bundled or Path("/Applications/ChatGPT.app/Contents/Resources/codex")
+    raw_candidates: list[str | Path | None] = [
+        lookup("codex"),
+        user_home / ".npm-global" / "bin" / "codex",
+        user_home / ".local" / "bin" / "codex",
+        Path("/opt/homebrew/bin/codex"),
+        Path("/usr/local/bin/codex"),
+        bundled_path,
+    ]
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for candidate in raw_candidates:
+        if candidate is None:
+            continue
+        path = Path(candidate).expanduser()
+        if not path.is_file() or not os.access(path, os.X_OK):
+            continue
+        identity = os.path.realpath(path)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        candidates.append(str(path))
+    return candidates
 
 
 def find_codex() -> str | None:
-    bundled = Path("/Applications/ChatGPT.app/Contents/Resources/codex")
-    if bundled.is_file():
-        return str(bundled)
-    return shutil.which("codex")
+    candidates = find_codex_candidates()
+    return candidates[0] if candidates else None
+
+
+def quota_available_from_account(result: dict[str, Any]) -> bool:
+    """ChatGPT subscription windows apply only to active ChatGPT auth."""
+
+    account = result.get("account")
+    return (
+        result.get("requiresOpenaiAuth") is True
+        and isinstance(account, dict)
+        and account.get("type") == "chatgpt"
+    )
 
 
 class CodexAppServerClient:
@@ -44,6 +95,9 @@ class CodexAppServerClient:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            # thread/list is one JSONL record and can exceed asyncio's 64 KiB
+            # default even though CardBridge later trims it to eight sessions.
+            limit=APP_SERVER_STREAM_LIMIT,
         )
         self._reader_task = asyncio.create_task(self._read_stdout())
         self._stderr_task = asyncio.create_task(self._read_stderr())
@@ -142,13 +196,14 @@ class CodexAppServerClient:
 class CodexMonitor:
     def __init__(self, store: AgentStore, executable: str | None = None) -> None:
         self.store = store
-        self.executable = executable or find_codex()
+        self.executables = [executable] if executable else find_codex_candidates()
+        self.executable = self.executables[0] if self.executables else None
         self.client: CodexAppServerClient | None = None
         self.task: asyncio.Task[None] | None = None
         self._stopping = False
 
     async def start(self) -> None:
-        if self.executable is None:
+        if not self.executables:
             LOG.warning("Codex executable not found; agent monitor disabled")
             return
         self._stopping = False
@@ -182,33 +237,71 @@ class CodexMonitor:
         data = threads.get("data")
         if isinstance(data, list):
             self.store.update_threads([item for item in data if isinstance(item, dict)])
-        limits = await self.client.request("account/rateLimits/read", None)
+
+        # Session history is local and remains useful in API/custom-provider
+        # mode. Subscription quota is a separate, optional ChatGPT-only view.
+        try:
+            account = await self.client.request(
+                "account/read", {"refreshToken": False}
+            )
+        except Exception as exc:
+            LOG.debug("Codex account mode unavailable: %s", exc)
+            self.store.set_quota_available(False)
+            return
+
+        quota_available = quota_available_from_account(account)
+        self.store.set_quota_available(quota_available)
+        if not quota_available:
+            return
+
+        try:
+            limits = await self.client.request("account/rateLimits/read", None)
+        except Exception as exc:
+            # A quota endpoint failure must never take Session Pet offline.
+            LOG.debug("Codex rate limits unavailable: %s", exc)
+            return
         self.store.update_rate_limits(limits)
 
     async def _run(self) -> None:
         while not self._stopping:
-            try:
-                self.client = CodexAppServerClient(self.executable, self._notification)
-                await self.client.start()
-                LOG.info("Codex agent monitor connected")
-                while not self._stopping:
+            for executable in self.executables:
+                if self._stopping:
+                    return
+                self.executable = executable
+                try:
+                    self.client = CodexAppServerClient(executable, self._notification)
+                    await self.client.start()
+                    # Validate history access before considering this candidate
+                    # connected. A provider-incompatible binary often completes
+                    # initialize and then exits on the first real request.
                     await self.refresh()
-                    await asyncio.sleep(30)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                LOG.warning("Codex monitor unavailable: %s", exc)
+                    LOG.info("Codex agent monitor connected via %s", executable)
+                    while not self._stopping:
+                        await asyncio.sleep(30)
+                        await self.refresh()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    LOG.warning("Codex monitor failed via %s: %s", executable, exc)
+                finally:
+                    if self.client is not None:
+                        await self.client.stop()
+                        self.client = None
+            if not self._stopping:
                 await asyncio.sleep(10)
-            finally:
-                if self.client is not None:
-                    await self.client.stop()
-                    self.client = None
 
     async def _notification(self, method: str, params: dict[str, Any]) -> None:
         if method == "account/rateLimits/updated":
             rate_limits = params.get("rateLimits")
-            if isinstance(rate_limits, dict):
+            if self.store.quota_available and isinstance(rate_limits, dict):
                 self.store.update_rate_limits({"rateLimits": rate_limits})
+        elif method == "account/updated":
+            # A non-ChatGPT login can be hidden immediately. ChatGPT is only
+            # enabled after account/read also confirms the active provider
+            # requires OpenAI auth, avoiding stale cached-account metadata.
+            auth_mode = params.get("authMode")
+            if isinstance(auth_mode, str) and auth_mode != "chatgpt":
+                self.store.set_quota_available(False)
 
 
 class CodexHookProtocol(asyncio.DatagramProtocol):
