@@ -1,6 +1,6 @@
 # CardBridge validation handoff
 
-`GOAL.md` remains the product source of truth. This file records the repeatable development checks and the physical acceptance sequence for the Claude/user handoff.
+`GOAL.md` remains the product source of truth. This file records the repeatable development checks and the physical acceptance sequence for the Codex/user workflow.
 
 ## Development checks (safe without hardware)
 
@@ -15,7 +15,7 @@ Expected results:
 
 - PlatformIO builds `firmware.bin` for `m5stack-stamps3` without PSRAM flags or APIs.
 - Python tests cover token persistence, UTF-8 JSON framing/size, audio HMAC rejection, jitter startup, silence loss concealment, six-digit pairing, authenticated/unauthenticated TCP behavior, agent focus/quota state, safe Hook installation, explicit F13 down/up, persisted-token reconnect, and the shipped fake device's UDP sine stream.
-- No upload or serial-monitor command is part of this sequence.
+- These checks do not require hardware, but Codex may also upload and use the serial monitor when a device is connected.
 
 Current 2026-07-15 build result: 1,471,966 bytes Flash (44.0% of the app partition) and 64,780 bytes static RAM (19.8% of the 327,680-byte linker budget). The generated 30-frame pet payload is 53,084 RLE bytes.
 
@@ -30,7 +30,7 @@ Current 2026-07-15 build result: 1,471,966 bytes Flash (44.0% of the app partiti
 ## Physical M1–M4 acceptance
 
 1. Install/configure the Mac service using `bridge/README.md`, then start it before powering the device.
-2. Flash through the designated hardware-validation workflow (not the development workflow).
+2. Build and flash with `pio run -t upload`. Allow the USB CDC port to reappear after reset and let PlatformIO auto-detect it when possible.
 3. M1: with no credentials, confirm automatic 2.4 GHz scan; choose an SSID, type only its password, pair using the displayed six-digit Mac code, reboot, and confirm automatic WiFi/Mac reconnect plus status-bar fields.
 4. M2: confirm the status-bar keyboard icon starts off. Navigate to a non-main page, press BtnA, and confirm the icon turns on without changing the page. In a macOS text field type mixed lower/uppercase letters, digits, and punctuation; confirm the device page cannot be operated until BtnA turns keyboard forwarding off. Verify physical Alt+C/V act as Cmd+C/V, Shift modifies the target key without a separate modifier event, `Fn+; , . /` send Up/Left/Down/Right, and `Fn+\`` sends Escape.
 5. WiFi UI: confirm scan results use signal icons rather than RSSI numbers. A saved network is forgotten with `Backspace` alone, ESC returns, and password entry preserves lowercase, Shift-uppercase, and shifted symbols.

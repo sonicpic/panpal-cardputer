@@ -13,7 +13,7 @@ pio run
 
 Install PlatformIO Core first if `pio` is not already on `PATH`.
 
-Do not run `pio run -t upload` during the development phase. Flashing and physical-device acceptance are intentionally left to the designated hardware-validation workflow.
+When hardware is connected, Codex may run `pio run -t upload`, use the USB serial port, and perform physical-device validation. Let PlatformIO auto-detect `/dev/cu.usbmodem*` whenever possible because the port name can change after a reset.
 
 ## Build pet animation assets
 
