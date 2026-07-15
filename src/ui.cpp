@@ -166,7 +166,10 @@ void DeviceUi::handleMain() {
 }
 
 void DeviceUi::handleSettings() {
-  constexpr uint8_t itemCount = 6;
+  // Mic mute and the Typeless hot-key are gone: the WiFi->BlackHole voice
+  // path is a dead end (Typeless only lists real hardware mics), so both were
+  // switches with nothing behind them. They come back with the USB-mic route.
+  constexpr uint8_t itemCount = 4;
   if (navUp()) {
     settingsSelection_ = (settingsSelection_ + itemCount - 1) % itemCount;
   } else if (navDown()) {
@@ -185,18 +188,7 @@ void DeviceUi::handleSettings() {
         pairing_.requestDiscovery();
         setPage(Page::Computers);
         break;
-      case 2:
-        settings_.micMuted = !settings_.micMuted;
-        audio_.setMuted(settings_.micMuted);
-        store_.saveSettings(settings_);
-        break;
-      case 3:
-        settings_.typelessFunctionKey =
-            settings_.typelessFunctionKey >= 16
-                ? 13 : settings_.typelessFunctionKey + 1;
-        store_.saveSettings(settings_);
-        break;
-      case 4: {
+      case 2: {
         const uint8_t levels[] = {64, 128, 192, 255};
         size_t index = 0;
         while (index < 3 && settings_.brightness > levels[index]) ++index;
@@ -205,7 +197,7 @@ void DeviceUi::handleSettings() {
         store_.saveSettings(settings_);
         break;
       }
-      case 5: {
+      case 3: {
         const uint16_t times[] = {30, 60, 120, 300, 0};
         size_t index = 0;
         while (index < 4 && settings_.screenTimeoutSec != times[index]) ++index;
@@ -414,11 +406,6 @@ void DeviceUi::drawStatusBar() {
   canvas_.setTextColor(linked ? TFT_WHITE : kTextDim, TFT_BLACK);
   canvas_.print(clipped(linked ? pairing_.connectedName() : "no Mac", 11));
 
-  // Mic mini level bar.
-  const int level = map(audio_.level(), 0, 255, 0, 24);
-  canvas_.drawRect(172, 5, 26, 10, kTextDim);
-  canvas_.fillRect(173, 6, min(24, level), 8,
-                   audio_.muted() ? kBad : kGood);
   drawBattery(210, 5);
 }
 
@@ -445,12 +432,7 @@ void DeviceUi::drawRemotePanel() {
   canvas_.setTextSize(1);
   canvas_.setTextColor(kTextDim, kBackground);
   canvas_.drawString(String("keys sent: ") + String(keys_.sentKeys()),
-                     kWidth / 2, 84);
-  // Live mic meter, wide.
-  const int width = map(audio_.level(), 0, 255, 0, 200);
-  canvas_.drawRect(19, 96, 202, 10, kTextDim);
-  canvas_.fillRect(20, 97, min(200, width), 8,
-                   audio_.muted() ? kBad : kGood);
+                     kWidth / 2, 88);
   canvas_.setTextDatum(top_left);
   drawHint("typing goes to the Mac   BtnA: local control");
 }
@@ -512,18 +494,14 @@ void DeviceUi::drawMenuRow(int y, bool selected, const String& text,
 }
 
 void DeviceUi::drawSettings() {
-  const char* mic = settings_.micMuted ? "Muted" : "Live";
   String timeout = settings_.screenTimeoutSec == 0
       ? String("Never") : String(settings_.screenTimeoutSec) + "s";
-  drawMenuRow(24, settingsSelection_ == 0, "WiFi", clipped(wifi_.currentSsid(), 10));
-  drawMenuRow(42, settingsSelection_ == 1, "Computers",
+  drawMenuRow(30, settingsSelection_ == 0, "WiFi", clipped(wifi_.currentSsid(), 10));
+  drawMenuRow(52, settingsSelection_ == 1, "Computers",
               String(pairing_.pairedCount()));
-  drawMenuRow(60, settingsSelection_ == 2, "Microphone", mic);
-  drawMenuRow(78, settingsSelection_ == 3, "Typeless key",
-              String("F") + String(settings_.typelessFunctionKey));
-  drawMenuRow(96, settingsSelection_ == 4, "Brightness",
+  drawMenuRow(74, settingsSelection_ == 2, "Brightness",
               String(settings_.brightness));
-  drawMenuRow(114, settingsSelection_ == 5, "Screen off", timeout);
+  drawMenuRow(96, settingsSelection_ == 3, "Screen off", timeout);
   drawHint("Esc: back");
 }
 
