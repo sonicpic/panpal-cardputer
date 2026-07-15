@@ -103,7 +103,7 @@ bool AudioTransmitter::micStart() {
   write(0x01, 0x30);
   write(0x02, 0x00);
   write(0x03, 0x10);
-  write(0x16, 0x24);  // MIC gain
+  write(0x16, 0x24);  // ADC gain
   write(0x04, 0x10);
   write(0x05, 0x00);
   write(0x0B, 0x00);
@@ -129,11 +129,14 @@ bool AudioTransmitter::micStart() {
   write(0x13, 0x10);
   write(0x1B, 0x0A);  // HPF
   write(0x1C, 0x6A);  // DC offset cancel
-  write(0x17, 0xFF);  // ADC digital volume: max — the analog MEMS mic is quiet;
-                      // at 0xBF speech peaked ~350/32767. 0xFF lifts it into a
-                      // healthy STT range (verified: clear speech, peak ~28k).
+  // Keep the codec at its proven-clean gain. Cranking 0x17/0x16 raised the
+  // noise floor and glitch spikes far more than the voice (measured: quiet
+  // peak 1 -> 3881 while speech only went 330 -> 2672), i.e. it destroyed SNR.
+  // At these values the mic is quiet but clean (~16:1 speech/noise); make-up
+  // gain is applied in software on the bridge instead.
+  write(0x17, 0xBF);  // ADC digital volume: 0 dB
   write(0x15, 0x40);  // ADC ramp rate
-  write(0x14, 0x1A);  // analog MIC, max analog PGA gain (nibble 0xA = +30dB)
+  write(0x14, 0x1A);  // analog MIC, PGA gain
   write(0x37, 0x48);
   write(0x44, 0x08);
   write(0x45, 0x00);

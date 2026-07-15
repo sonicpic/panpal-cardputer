@@ -16,6 +16,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--udp-port", type=int, default=7789)
     result.add_argument("--audio-device", default="BlackHole 2ch")
     result.add_argument("--jitter-ms", type=int, default=100)
+    result.add_argument("--gain", type=float, default=20.0, help="software make-up gain into BlackHole")
     result.add_argument("--config", type=Path)
     result.add_argument("--no-audio", action="store_true", help="validate/drop audio without sound output")
     result.add_argument("--dry-run", action="store_true", help="log key events instead of injecting them")
@@ -33,6 +34,7 @@ async def run(args: argparse.Namespace) -> None:
         config_path=args.config,
         audio_device=args.audio_device,
         jitter_ms=args.jitter_ms,
+        gain=args.gain,
         no_audio=args.no_audio,
         dry_run=args.dry_run,
         advertise=not args.no_mdns,

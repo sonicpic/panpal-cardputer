@@ -115,6 +115,8 @@ void KeyTransmitter::send(const ActiveKey& key, const char* action) {
     if (strcmp(key.key, "shift") == 0) shift = false;
     if (strcmp(key.key, "alt") == 0) option = false;
     if (strcmp(key.key, "ctrl") == 0) control = false;
+  } else {
+    ++sentKeys_;
   }
   pairing_.sendKey(key.key, action, cmd, shift, option, control);
 }

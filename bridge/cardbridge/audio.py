@@ -87,9 +87,19 @@ class NullAudioOutput:
 
 
 class BlackHoleAudioOutput(NullAudioOutput):
-    def __init__(self, device_name: str = "BlackHole 2ch", target_ms: int = 100) -> None:
+    def __init__(
+        self,
+        device_name: str = "BlackHole 2ch",
+        target_ms: int = 100,
+        gain: float = 20.0,
+    ) -> None:
         super().__init__(target_ms)
         self.device_name = device_name
+        # Make-up gain. The ES8311 is kept at its clean 0dB setting, where close
+        # speech only reaches ~1% full scale; raising the codec's own gain
+        # amplified its noise floor faster than the voice. Applying the gain here
+        # keeps the codec's SNR and stays tunable without reflashing.
+        self.gain = gain
         self._stream: Any = None
         self._numpy: Any = None
         self._source: list[float] = []
@@ -145,6 +155,10 @@ class BlackHoleAudioOutput(NullAudioOutput):
             samples = self.jitter.read_samples(required - len(self._source))
             self._source.extend(sample / 32768.0 for sample in samples)
         mono = np.interp(positions, np.arange(len(self._source)), self._source).astype(np.float32)
+        if self.gain != 1.0:
+            # tanh soft-clip: loud syllables compress instead of hard-clipping,
+            # which would smear the waveform STT depends on.
+            mono = np.tanh(mono * self.gain).astype(np.float32)
         outdata[:, 0] = mono
         outdata[:, 1] = mono
         next_position = self._phase + frames * step

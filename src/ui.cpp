@@ -3,102 +3,118 @@
 namespace cardbridge {
 namespace {
 
-constexpr int kStatusHeight = 18;
-constexpr uint16_t kBackground = 0x0841;
-constexpr uint16_t kPanel = 0x1082;
-constexpr uint16_t kAccent = 0x05FF;
-constexpr uint16_t kSelected = 0x032D;
+constexpr int kWidth = 240;
+constexpr int kHeight = 135;
+constexpr int kStatusHeight = 20;
+constexpr uint16_t kBackground = 0x0841;   // near-black blue
+constexpr uint16_t kPanel = 0x18E3;        // card body
+constexpr uint16_t kPanelSelected = 0x0339;
+constexpr uint16_t kAccent = 0x05FF;       // cyan
+constexpr uint16_t kAccentWarm = 0xFD20;   // orange
+constexpr uint16_t kTextDim = 0x8410;
+constexpr uint16_t kGood = 0x07E9;
+constexpr uint16_t kBad = 0xF9E7;
 
 }  // namespace
 
 void DeviceUi::begin() {
   auto& display = M5Cardputer.Display;
   display.setRotation(1);
-  display.setTextFont(1);
-  display.setTextSize(1);
   display.setBrightness(settings_.brightness);
+  canvas_.setColorDepth(16);
+  void* buffer = canvas_.createSprite(kWidth, kHeight);
+  if (!buffer) {
+    // Not enough contiguous heap for 16-bit: fall back to 8-bit (half size).
+    canvas_.setColorDepth(8);
+    buffer = canvas_.createSprite(kWidth, kHeight);
+  }
+  Serial.printf("[ui] canvas=%p depth=%d heap=%u\n", buffer,
+                canvas_.getColorDepth(), ESP.getFreeHeap());
+  canvas_.setTextFont(1);
   lastActivityMs_ = millis();
-  draw();
+  render();
+}
+
+void DeviceUi::setMode(UiMode mode) {
+  if (mode_ == mode) return;
+  mode_ = mode;
+  if (mode_ == UiMode::Local) page_ = Page::Main;
+  suppressUntilRelease_ = M5Cardputer.Keyboard.isPressed();
 }
 
 void DeviceUi::tick() {
-  if (suppressUntilRelease_ && !M5Cardputer.Keyboard.isPressed()) {
-    suppressUntilRelease_ = false;
-  }
-  consumesKeyboard_ = page_ != Page::Main;
-  if (M5Cardputer.Keyboard.isPressed() || M5Cardputer.BtnA.isPressed()) {
+  const bool connected = pairing_.connected();
+  // Auto-switch: entering a connection puts the keyboard to work on the Mac;
+  // losing it hands control back to the device.
+  if (connected && !wasConnected_) setMode(UiMode::Remote);
+  if (!connected && wasConnected_) setMode(UiMode::Local);
+  wasConnected_ = connected;
+
+  // BtnA: the dedicated physical mode switch (wakes the screen first).
+  if (M5Cardputer.BtnA.wasClicked()) {
+    noteActivity();
     if (screenOff_) {
       screenOff_ = false;
       M5Cardputer.Display.setBrightness(settings_.brightness);
-      dirty_ = true;
+    } else if (connected) {
+      setMode(mode_ == UiMode::Remote ? UiMode::Local : UiMode::Remote);
     }
+  }
+
+  if (suppressUntilRelease_ && !M5Cardputer.Keyboard.isPressed()) {
+    suppressUntilRelease_ = false;
+  }
+
+  if (M5Cardputer.Keyboard.isPressed()) {
     noteActivity();
+    if (screenOff_) {
+      screenOff_ = false;
+      M5Cardputer.Display.setBrightness(settings_.brightness);
+      // In Local mode the waking keypress must not also act on the UI.
+      // In Remote mode keys keep flowing to the Mac uninterrupted.
+      if (mode_ == UiMode::Local) suppressUntilRelease_ = true;
+    }
   }
-
   updateScreenPower();
-  if (screenOff_) {
-    consumesKeyboard_ = true;
-    return;
-  }
 
-  if (wifi_.needsSetup() && page_ == Page::Main) {
+  // First-boot funnel: no WiFi credentials -> jump into setup.
+  if (wifi_.needsSetup() && mode_ == UiMode::Local && page_ == Page::Main) {
     wifi_.acknowledgeSetup();
     wifi_.startScan();
     setPage(Page::Wifi);
   }
+  // Pairing flow interrupts (they require typing, so force Local).
   if (pairing_.pairCodeRequested() && page_ != Page::PairCode) {
+    setMode(UiMode::Local);
     textEntry_.clear();
     setPage(Page::PairCode);
   } else if (page_ == Page::PairCode && pairing_.connected()) {
     setPage(Page::Computers);
   }
 
-  if ((page_ == Page::Computers || page_ == Page::AddComputer) &&
+  if (mode_ == UiMode::Local &&
+      (page_ == Page::Computers || page_ == Page::AddComputer) &&
       millis() - lastComputerScanMs_ >= 10000) {
     pairing_.requestDiscovery();
     lastComputerScanMs_ = millis();
   }
-  if ((page_ == Page::Computers || page_ == Page::AddComputer ||
-       page_ == Page::PairCode || page_ == Page::Wifi) &&
-      millis() - lastPageRefreshMs_ >= 1000) {
-    // Async WiFi scans and mDNS discovery finish with no key event, so list
-    // pages must repaint on a timer to show fresh results.
-    dirty_ = true;
-    lastPageRefreshMs_ = millis();
-  }
 
-  if (keyEvent()) {
-    const auto& state = M5Cardputer.Keyboard.keysState();
-    if (page_ != Page::Main ||
-        (state.fn && (pressed('i') || pressed('k') || state.enter || state.del))) {
-      suppressUntilRelease_ = true;
-    }
+  // Input routing.
+  consumesKeyboard_ = mode_ == UiMode::Local || suppressUntilRelease_;
+  if (mode_ == UiMode::Local && !suppressUntilRelease_ &&
+      M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+    noteActivity();
     handleInput();
   }
-  if (dirty_) {
-    draw();
-  } else if (millis() - lastStatusDrawMs_ >= 500) {
-    drawStatusBar();
-    if (page_ == Page::Main) {
-      const int width = map(audio_.level(), 0, 255, 0, 226);
-      M5Cardputer.Display.fillRect(7, 119, 226, 8, TFT_DARKGREY);
-      M5Cardputer.Display.fillRect(7, 119, width, 8,
-                                   audio_.muted() ? TFT_RED : TFT_GREEN);
-    }
-  }
 
-  // On the main page only Fn navigation is consumed. Ordinary typing remains
-  // an always-on service and is forwarded regardless of the selected menu row.
-  if (page_ == Page::Main) {
-    const auto& state = M5Cardputer.Keyboard.keysState();
-    consumesKeyboard_ = suppressUntilRelease_ || (state.fn &&
-        (pressed('i') || pressed('k') || state.enter || state.del));
+  // Steady 10 fps into the off-screen canvas: no flicker, always fresh.
+  if (!screenOff_ && millis() - lastRenderMs_ >= 100) {
+    render();
+    lastRenderMs_ = millis();
   }
 }
 
-bool DeviceUi::keyEvent() const {
-  return M5Cardputer.Keyboard.isChange();
-}
+// ---------------------------------------------------------------- input --
 
 bool DeviceUi::pressed(char character) const {
   const auto& state = M5Cardputer.Keyboard.keysState();
@@ -109,31 +125,23 @@ bool DeviceUi::pressed(char character) const {
   return false;
 }
 
-bool DeviceUi::navUp() const {
-  const auto& state = M5Cardputer.Keyboard.keysState();
-  return pressed('i') && (page_ != Page::Main || state.fn);
-}
-
-bool DeviceUi::navDown() const {
-  const auto& state = M5Cardputer.Keyboard.keysState();
-  return pressed('k') && (page_ != Page::Main || state.fn);
-}
-
+// Arrow legends on the Cardputer keycaps: ; up  . down  , left  / right.
+// ijkl kept as an alternative for one-handed use.
+bool DeviceUi::navUp() const { return pressed(';') || pressed('i'); }
+bool DeviceUi::navDown() const { return pressed('.') || pressed('k'); }
+bool DeviceUi::navLeft() const { return pressed(',') || pressed('j'); }
+bool DeviceUi::navRight() const { return pressed('/') || pressed('l'); }
 bool DeviceUi::enterPressed() const {
-  const auto& state = M5Cardputer.Keyboard.keysState();
-  return state.enter && (page_ != Page::Main || state.fn);
+  return M5Cardputer.Keyboard.keysState().enter;
 }
-
 bool DeviceUi::backPressed() const {
-  return M5Cardputer.Keyboard.keysState().del;
+  return pressed('`') || M5Cardputer.Keyboard.keysState().del;
 }
 
 void DeviceUi::handleInput() {
-  if (!M5Cardputer.Keyboard.isPressed()) return;
-  noteActivity();
   switch (page_) {
     case Page::Main: handleMain(); break;
-    case Page::ComingSoon: if (backPressed()) setPage(Page::Main); break;
+    case Page::ComingSoon: if (backPressed() || enterPressed()) setPage(Page::Main); break;
     case Page::Settings: handleSettings(); break;
     case Page::Wifi: handleWifi(); break;
     case Page::WifiPassword: handlePassword(); break;
@@ -144,12 +152,10 @@ void DeviceUi::handleInput() {
 }
 
 void DeviceUi::handleMain() {
-  if (navUp()) {
+  if (navLeft()) {
     mainSelection_ = (mainSelection_ + 2) % 3;
-    dirty_ = true;
-  } else if (navDown()) {
+  } else if (navRight()) {
     mainSelection_ = (mainSelection_ + 1) % 3;
-    dirty_ = true;
   } else if (enterPressed()) {
     if (mainSelection_ < 2) {
       comingAssistant_ = mainSelection_;
@@ -161,13 +167,11 @@ void DeviceUi::handleMain() {
 }
 
 void DeviceUi::handleSettings() {
-  constexpr uint8_t itemCount = 7;
+  constexpr uint8_t itemCount = 6;
   if (navUp()) {
     settingsSelection_ = (settingsSelection_ + itemCount - 1) % itemCount;
-    dirty_ = true;
   } else if (navDown()) {
     settingsSelection_ = (settingsSelection_ + 1) % itemCount;
-    dirty_ = true;
   } else if (backPressed()) {
     setPage(Page::Main);
   } else if (enterPressed()) {
@@ -186,16 +190,13 @@ void DeviceUi::handleSettings() {
         settings_.micMuted = !settings_.micMuted;
         audio_.setMuted(settings_.micMuted);
         store_.saveSettings(settings_);
-        dirty_ = true;
         break;
-      case 3: {
+      case 3:
         settings_.typelessFunctionKey =
             settings_.typelessFunctionKey >= 16
                 ? 13 : settings_.typelessFunctionKey + 1;
         store_.saveSettings(settings_);
-        dirty_ = true;
         break;
-      }
       case 4: {
         const uint8_t levels[] = {64, 128, 192, 255};
         size_t index = 0;
@@ -203,7 +204,6 @@ void DeviceUi::handleSettings() {
         settings_.brightness = levels[(index + 1) % 4];
         M5Cardputer.Display.setBrightness(settings_.brightness);
         store_.saveSettings(settings_);
-        dirty_ = true;
         break;
       }
       case 5: {
@@ -212,30 +212,25 @@ void DeviceUi::handleSettings() {
         while (index < 4 && settings_.screenTimeoutSec != times[index]) ++index;
         settings_.screenTimeoutSec = times[(index + 1) % 5];
         store_.saveSettings(settings_);
-        dirty_ = true;
         break;
       }
-      case 6: setPage(Page::Main); break;
     }
   }
 }
 
 void DeviceUi::handleWifi() {
   const size_t count = wifi_.scanCount();
-  if (pressed('r') || M5Cardputer.Keyboard.keysState().tab) {
+  const auto& state = M5Cardputer.Keyboard.keysState();
+  if (state.tab || pressed('r')) {
     wifi_.startScan();
-    dirty_ = true;
-  } else if (backPressed() && M5Cardputer.Keyboard.keysState().fn && count > 0) {
+  } else if (state.fn && state.del && count > 0) {
     wifi_.forget(wifi_.scanResult(listSelection_).ssid);
-    dirty_ = true;
   } else if (backPressed()) {
     setPage(Page::Settings);
   } else if (count > 0 && navUp()) {
     listSelection_ = (listSelection_ + count - 1) % count;
-    dirty_ = true;
   } else if (count > 0 && navDown()) {
     listSelection_ = (listSelection_ + 1) % count;
-    dirty_ = true;
   } else if (count > 0 && enterPressed()) {
     const WifiScanResult& selected = wifi_.scanResult(listSelection_);
     if (selected.saved) {
@@ -267,7 +262,6 @@ void DeviceUi::handlePassword() {
     setPage(Page::Settings);
   } else if (state.del) {
     if (!textEntry_.isEmpty()) textEntry_.remove(textEntry_.length() - 1);
-    dirty_ = true;
   } else {
     appendTypedText(textEntry_, 63, false);
   }
@@ -275,19 +269,16 @@ void DeviceUi::handlePassword() {
 
 void DeviceUi::handleComputers() {
   const size_t rows = pairing_.pairedCount() + 2;  // Add new + Back.
-  if (backPressed() && M5Cardputer.Keyboard.keysState().fn &&
-      listSelection_ < pairing_.pairedCount()) {
+  const auto& state = M5Cardputer.Keyboard.keysState();
+  if (state.fn && state.del && listSelection_ < pairing_.pairedCount()) {
     pairing_.deletePairing(listSelection_);
     if (listSelection_ >= pairing_.pairedCount() && listSelection_ > 0) --listSelection_;
-    dirty_ = true;
   } else if (backPressed()) {
     setPage(Page::Settings);
   } else if (navUp()) {
     listSelection_ = (listSelection_ + rows - 1) % rows;
-    dirty_ = true;
   } else if (navDown()) {
     listSelection_ = (listSelection_ + 1) % rows;
-    dirty_ = true;
   } else if (enterPressed()) {
     if (listSelection_ < pairing_.pairedCount()) {
       if (pairing_.pairedCurrent(listSelection_)) {
@@ -295,7 +286,6 @@ void DeviceUi::handleComputers() {
       } else {
         pairing_.connectToPaired(listSelection_);
       }
-      dirty_ = true;
     } else if (listSelection_ == pairing_.pairedCount()) {
       listSelection_ = 0;
       pairing_.requestDiscovery();
@@ -308,20 +298,17 @@ void DeviceUi::handleComputers() {
 
 void DeviceUi::handleAddComputer() {
   const size_t count = pairing_.discoveredCount();
-  if (pressed('r') || M5Cardputer.Keyboard.keysState().tab) {
+  const auto& state = M5Cardputer.Keyboard.keysState();
+  if (state.tab || pressed('r')) {
     pairing_.requestDiscovery();
-    dirty_ = true;
   } else if (backPressed()) {
     setPage(Page::Computers);
   } else if (count > 0 && navUp()) {
     listSelection_ = (listSelection_ + count - 1) % count;
-    dirty_ = true;
   } else if (count > 0 && navDown()) {
     listSelection_ = (listSelection_ + 1) % count;
-    dirty_ = true;
   } else if (count > 0 && enterPressed()) {
     pairing_.connectToDiscovered(listSelection_);
-    dirty_ = true;
   }
 }
 
@@ -332,10 +319,8 @@ void DeviceUi::handlePairCode() {
     setPage(Page::Computers);
   } else if (state.enter && textEntry_.length() == 6) {
     pairing_.submitPairCode(textEntry_);
-    dirty_ = true;
   } else if (state.del) {
     if (!textEntry_.isEmpty()) textEntry_.remove(textEntry_.length() - 1);
-    dirty_ = true;
   } else {
     appendTypedText(textEntry_, 6, true);
   }
@@ -349,13 +334,12 @@ void DeviceUi::appendTypedText(String& destination, size_t maxLength,
     if (digitsOnly && !isDigit(c)) continue;
     if (c >= 32 && c <= 126) destination += c;
   }
-  dirty_ = true;
 }
 
 void DeviceUi::setPage(Page page) {
   page_ = page;
   listSelection_ = 0;
-  dirty_ = true;
+  suppressUntilRelease_ = M5Cardputer.Keyboard.isPressed();
 }
 
 void DeviceUi::noteActivity() {
@@ -370,193 +354,266 @@ void DeviceUi::updateScreenPower() {
   }
 }
 
-void DeviceUi::draw() {
-  auto& display = M5Cardputer.Display;
-  display.fillScreen(kBackground);
+// -------------------------------------------------------------- drawing --
+
+void DeviceUi::render() {
+  if (!canvas_.getBuffer()) return;  // allocation failed — never draw blind
+  canvas_.fillSprite(kBackground);
   drawStatusBar();
-  switch (page_) {
-    case Page::Main: drawMain(); break;
-    case Page::ComingSoon: drawComingSoon(); break;
-    case Page::Settings: drawSettings(); break;
-    case Page::Wifi: drawWifi(); break;
-    case Page::WifiPassword: drawPassword(); break;
-    case Page::Computers: drawComputers(); break;
-    case Page::AddComputer: drawAddComputer(); break;
-    case Page::PairCode: drawPairCode(); break;
+  if (mode_ == UiMode::Remote) {
+    drawRemotePanel();
+  } else {
+    switch (page_) {
+      case Page::Main: drawMain(); break;
+      case Page::ComingSoon: drawComingSoon(); break;
+      case Page::Settings: drawSettings(); break;
+      case Page::Wifi: drawWifi(); break;
+      case Page::WifiPassword: drawPassword(); break;
+      case Page::Computers: drawComputers(); break;
+      case Page::AddComputer: drawAddComputer(); break;
+      case Page::PairCode: drawPairCode(); break;
+    }
   }
-  dirty_ = false;
+  // Explicit destination: the sprite's stored parent pointer is unreliable
+  // when the canvas member is constructed before M5Cardputer (static-init
+  // order across translation units).
+  canvas_.pushSprite(&M5Cardputer.Display, 0, 0);
+}
+
+void DeviceUi::drawWifiBars(int x, int y, int rssi, bool connected) {
+  const int bars = !connected ? 0 : rssi > -55 ? 4 : rssi > -65 ? 3
+                   : rssi > -75 ? 2 : 1;
+  for (int i = 0; i < 4; ++i) {
+    const int h = 3 + i * 3;
+    canvas_.fillRect(x + i * 4, y + 12 - h, 3, h,
+                     i < bars ? kGood : kPanel);
+  }
+}
+
+void DeviceUi::drawBattery(int x, int y) {
+  const int level = M5Cardputer.Power.getBatteryLevel();
+  canvas_.drawRect(x, y, 20, 10, kTextDim);
+  canvas_.fillRect(x + 20, y + 3, 2, 4, kTextDim);
+  if (level > 0) {
+    const uint16_t color = level > 30 ? kGood : kBad;
+    canvas_.fillRect(x + 2, y + 2, max(1, (20 - 4) * level / 100), 6, color);
+  }
 }
 
 void DeviceUi::drawStatusBar() {
-  auto& display = M5Cardputer.Display;
-  display.fillRect(0, 0, display.width(), kStatusHeight, TFT_BLACK);
-  display.setTextColor(TFT_WHITE, TFT_BLACK);
-  display.setCursor(3, 5);
-  if (wifi_.connected()) {
-    display.printf("%s %dd", clipped(wifi_.currentSsid(), 9).c_str(), wifi_.rssi());
-  } else {
-    display.print("WiFi --");
-  }
-  display.setCursor(91, 5);
-  display.print(clipped(pairing_.connected() ? pairing_.connectedName() : "Mac --", 12));
-  display.setCursor(177, 5);
-  display.print(audio_.muted() ? "MUTE" : (pairing_.connected() ? "MIC" : "MIC-"));
-  int battery = M5Cardputer.Power.getBatteryLevel();
-  display.setCursor(211, 5);
-  if (battery >= 0) display.printf("%d%%", battery);
-  lastStatusDrawMs_ = millis();
+  canvas_.fillRect(0, 0, kWidth, kStatusHeight, TFT_BLACK);
+  drawWifiBars(4, 4, wifi_.rssi(), wifi_.connected());
+  canvas_.setTextColor(kTextDim, TFT_BLACK);
+  canvas_.setTextSize(1);
+  canvas_.setCursor(24, 7);
+  canvas_.print(clipped(wifi_.connected() ? wifi_.currentSsid() : "--", 8));
+
+  // Link dot + Mac name in the middle.
+  const bool linked = pairing_.connected();
+  canvas_.fillCircle(88, 10, 3, linked ? kGood : kBad);
+  canvas_.setCursor(96, 7);
+  canvas_.setTextColor(linked ? TFT_WHITE : kTextDim, TFT_BLACK);
+  canvas_.print(clipped(linked ? pairing_.connectedName() : "no Mac", 11));
+
+  // Mic mini level bar.
+  const int level = map(audio_.level(), 0, 255, 0, 24);
+  canvas_.drawRect(172, 5, 26, 10, kTextDim);
+  canvas_.fillRect(173, 6, min(24, level), 8,
+                   audio_.muted() ? kBad : kGood);
+  drawBattery(210, 5);
+}
+
+void DeviceUi::drawHint(const String& text) {
+  canvas_.setTextSize(1);
+  canvas_.setTextColor(kTextDim, kBackground);
+  canvas_.setTextDatum(bottom_center);
+  canvas_.drawString(text, kWidth / 2, kHeight - 3);
+  canvas_.setTextDatum(top_left);
+}
+
+void DeviceUi::drawRemotePanel() {
+  // Big, glanceable: you are typing on THAT Mac right now.
+  canvas_.setTextDatum(middle_center);
+  canvas_.setTextColor(kAccent, kBackground);
+  canvas_.setTextSize(2);
+  canvas_.drawString("REMOTE", kWidth / 2, 38);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setTextSize(2);
+  canvas_.drawString(clipped(pairing_.connectedName(), 16), kWidth / 2, 62);
+  canvas_.setTextSize(1);
+  canvas_.setTextColor(kTextDim, kBackground);
+  canvas_.drawString(String("keys sent: ") + String(keys_.sentKeys()),
+                     kWidth / 2, 84);
+  // Live mic meter, wide.
+  const int width = map(audio_.level(), 0, 255, 0, 200);
+  canvas_.drawRect(19, 96, 202, 10, kTextDim);
+  canvas_.fillRect(20, 97, min(200, width), 8,
+                   audio_.muted() ? kBad : kGood);
+  canvas_.setTextDatum(top_left);
+  drawHint("typing goes to the Mac   BtnA: local control");
 }
 
 void DeviceUi::drawMain() {
-  drawMenuRow(25, mainSelection_ == 0, "Claude assistant", ">");
-  drawMenuRow(51, mainSelection_ == 1, "Codex assistant", ">");
-  drawMenuRow(77, mainSelection_ == 2, "Settings", ">");
-  auto& display = M5Cardputer.Display;
-  display.setTextColor(TFT_LIGHTGREY, kBackground);
-  display.setCursor(7, 105);
-  display.print("Fn+I/K select  Fn+Enter open");
-  display.fillRect(7, 119, 226, 8, TFT_DARKGREY);
+  static const char* names[] = {"Claude", "Codex", "Setup"};
+  static const uint16_t colors[] = {kAccentWarm, kAccent, kTextDim};
+  const int cardWidth = 68, cardHeight = 74, gap = 8;
+  const int totalWidth = 3 * cardWidth + 2 * gap;
+  const int x0 = (kWidth - totalWidth) / 2;
+  const int y0 = 30;
+  for (int i = 0; i < 3; ++i) {
+    const int x = x0 + i * (cardWidth + gap);
+    const bool selected = mainSelection_ == i;
+    canvas_.fillRoundRect(x, y0, cardWidth, cardHeight, 8,
+                          selected ? kPanelSelected : kPanel);
+    if (selected) canvas_.drawRoundRect(x, y0, cardWidth, cardHeight, 8, kAccent);
+    // Icon: filled circle with a bold glyph.
+    canvas_.fillCircle(x + cardWidth / 2, y0 + 26, 16, colors[i]);
+    canvas_.setTextDatum(middle_center);
+    canvas_.setTextSize(2);
+    canvas_.setTextColor(TFT_BLACK, colors[i]);
+    canvas_.drawString(i == 0 ? "C" : i == 1 ? "X" : "*",
+                       x + cardWidth / 2, y0 + 27);
+    canvas_.setTextSize(1);
+    canvas_.setTextColor(selected ? TFT_WHITE : kTextDim,
+                         selected ? kPanelSelected : kPanel);
+    canvas_.drawString(names[i], x + cardWidth / 2, y0 + cardHeight - 14);
+    canvas_.setTextDatum(top_left);
+  }
+  drawHint("</> select  Enter open  BtnA remote");
 }
 
 void DeviceUi::drawComingSoon() {
-  auto& display = M5Cardputer.Display;
-  display.setTextDatum(middle_center);
-  display.setTextColor(kAccent, kBackground);
-  display.setTextSize(2);
-  display.drawString(comingAssistant_ == 0 ? "Claude" : "Codex", 120, 49);
-  display.setTextSize(1);
-  display.setTextColor(TFT_WHITE, kBackground);
-  display.drawString("Coming soon", 120, 78);
-  display.drawString("Backspace: back", 120, 108);
-  display.setTextDatum(top_left);
+  canvas_.setTextDatum(middle_center);
+  canvas_.setTextColor(kAccent, kBackground);
+  canvas_.setTextSize(2);
+  canvas_.drawString(comingAssistant_ == 0 ? "Claude" : "Codex", kWidth / 2, 52);
+  canvas_.setTextSize(1);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.drawString("Coming soon", kWidth / 2, 78);
+  canvas_.setTextDatum(top_left);
+  drawHint("Esc/Backspace: back");
+}
+
+void DeviceUi::drawMenuRow(int y, bool selected, const String& text,
+                           const String& value) {
+  const uint16_t background = selected ? kPanelSelected : kPanel;
+  canvas_.fillRoundRect(4, y, kWidth - 8, 16, 3, background);
+  if (selected) canvas_.drawRoundRect(4, y, kWidth - 8, 16, 3, kAccent);
+  canvas_.setTextColor(selected ? TFT_WHITE : kTextDim, background);
+  canvas_.setCursor(10, y + 4);
+  canvas_.print(text);
+  if (!value.isEmpty()) {
+    const int width = canvas_.textWidth(value);
+    canvas_.setCursor(kWidth - 10 - width, y + 4);
+    canvas_.print(value);
+  }
 }
 
 void DeviceUi::drawSettings() {
   const char* mic = settings_.micMuted ? "Muted" : "Live";
   String timeout = settings_.screenTimeoutSec == 0
       ? String("Never") : String(settings_.screenTimeoutSec) + "s";
-  drawMenuRow(20, settingsSelection_ == 0, "WiFi", clipped(wifi_.currentSsid(), 10));
-  drawMenuRow(36, settingsSelection_ == 1, "Computers",
+  drawMenuRow(24, settingsSelection_ == 0, "WiFi", clipped(wifi_.currentSsid(), 10));
+  drawMenuRow(42, settingsSelection_ == 1, "Computers",
               String(pairing_.pairedCount()));
-  drawMenuRow(52, settingsSelection_ == 2, "Microphone", mic);
-  drawMenuRow(68, settingsSelection_ == 3, "Typeless key",
+  drawMenuRow(60, settingsSelection_ == 2, "Microphone", mic);
+  drawMenuRow(78, settingsSelection_ == 3, "Typeless key",
               String("F") + String(settings_.typelessFunctionKey));
-  drawMenuRow(84, settingsSelection_ == 4, "Brightness",
+  drawMenuRow(96, settingsSelection_ == 4, "Brightness",
               String(settings_.brightness));
-  drawMenuRow(100, settingsSelection_ == 5, "Screen off", timeout);
-  drawMenuRow(116, settingsSelection_ == 6, "Back");
+  drawMenuRow(114, settingsSelection_ == 5, "Screen off", timeout);
+  drawHint("Esc: back");
 }
 
 void DeviceUi::drawWifi() {
-  auto& display = M5Cardputer.Display;
-  display.setTextColor(TFT_WHITE, kBackground);
-  display.setCursor(5, 21);
-  display.print(wifi_.scanning() ? "Scanning WiFi..." : "WiFi networks  R:rescan");
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(6, 24);
+  canvas_.print(wifi_.scanning() ? "Scanning..." : "WiFi networks");
   const size_t count = wifi_.scanCount();
-  const size_t first = listSelection_ >= 5 ? listSelection_ - 4 : 0;
-  for (size_t row = 0; row < 5 && first + row < count; ++row) {
+  const size_t first = listSelection_ >= 4 ? listSelection_ - 3 : 0;
+  for (size_t row = 0; row < 4 && first + row < count; ++row) {
     const auto& item = wifi_.scanResult(first + row);
     String value = wifi_.connected() && wifi_.currentSsid() == item.ssid
-                       ? String("CUR")
+                       ? String("<now>")
                        : (item.rssi <= -127 ? String("--") : String(item.rssi));
-    value += (item.encrypted ? " L" : "");
-    value += (item.saved ? " S" : "");
-    drawMenuRow(38 + row * 18, first + row == listSelection_,
-                clipped(item.ssid, 17), value);
+    if (item.saved) value += "*";
+    drawMenuRow(36 + row * 18, first + row == listSelection_,
+                clipped(item.ssid, 18), value);
   }
   if (!wifi_.scanning() && count == 0) {
-    display.setCursor(5, 58);
-    display.print("No 2.4GHz networks found");
+    canvas_.setCursor(6, 60);
+    canvas_.print("No 2.4GHz networks found");
   }
+  drawHint("Tab rescan  Fn+Bksp forget  Esc back");
 }
 
 void DeviceUi::drawPassword() {
-  auto& display = M5Cardputer.Display;
-  display.setTextColor(TFT_WHITE, kBackground);
-  display.setCursor(7, 29);
-  display.print("Password for:");
-  display.setTextColor(kAccent, kBackground);
-  display.setCursor(7, 44);
-  display.print(clipped(pendingSsid_, 30));
-  display.drawRect(6, 65, 228, 25, TFT_DARKGREY);
-  display.setCursor(11, 73);
-  for (size_t i = 0; i < textEntry_.length(); ++i) display.print('*');
-  display.setTextColor(TFT_LIGHTGREY, kBackground);
-  display.setCursor(7, 106);
-  display.print("Enter: connect  Fn+Back: cancel");
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(8, 30);
+  canvas_.print("Password for:");
+  canvas_.setTextColor(kAccent, kBackground);
+  canvas_.setCursor(8, 44);
+  canvas_.print(clipped(pendingSsid_, 30));
+  canvas_.drawRoundRect(6, 62, kWidth - 12, 26, 4, kTextDim);
+  canvas_.setCursor(12, 71);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  for (size_t i = 0; i < textEntry_.length(); ++i) canvas_.print('*');
+  drawHint("Enter connect  Fn+Bksp cancel");
 }
 
 void DeviceUi::drawComputers() {
-  auto& display = M5Cardputer.Display;
-  display.setTextColor(TFT_WHITE, kBackground);
-  display.setCursor(5, 21);
-  display.print("Paired Macs  Fn+Back: delete");
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(6, 24);
+  canvas_.print("Paired Macs");
   const size_t total = pairing_.pairedCount() + 2;
-  const size_t first = listSelection_ >= 5 ? listSelection_ - 4 : 0;
-  for (size_t row = 0; row < 5 && first + row < total; ++row) {
+  const size_t first = listSelection_ >= 4 ? listSelection_ - 3 : 0;
+  for (size_t row = 0; row < 4 && first + row < total; ++row) {
     const size_t index = first + row;
     if (index < pairing_.pairedCount()) {
-      String state = pairing_.pairedCurrent(index) ? "CURRENT" :
+      String state = pairing_.pairedCurrent(index) ? "NOW" :
                      (pairing_.pairedOnline(index) ? "online" : "offline");
-      drawMenuRow(38 + row * 18, index == listSelection_,
+      drawMenuRow(36 + row * 18, index == listSelection_,
                   clipped(pairing_.paired(index).name, 16), state);
     } else if (index == pairing_.pairedCount()) {
-      drawMenuRow(38 + row * 18, index == listSelection_, "+ Add new computer");
+      drawMenuRow(36 + row * 18, index == listSelection_, "+ Add computer");
     } else {
-      drawMenuRow(38 + row * 18, index == listSelection_, "Back");
+      drawMenuRow(36 + row * 18, index == listSelection_, "< Back");
     }
   }
+  drawHint("Fn+Bksp delete  Esc back");
 }
 
 void DeviceUi::drawAddComputer() {
-  auto& display = M5Cardputer.Display;
-  display.setTextColor(TFT_WHITE, kBackground);
-  display.setCursor(5, 21);
-  display.print("Nearby Macs  R:rescan");
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(6, 24);
+  canvas_.print("Nearby Macs");
   const size_t count = pairing_.discoveredCount();
-  const size_t first = listSelection_ >= 5 ? listSelection_ - 4 : 0;
-  for (size_t row = 0; row < 5 && first + row < count; ++row) {
+  const size_t first = listSelection_ >= 4 ? listSelection_ - 3 : 0;
+  for (size_t row = 0; row < 4 && first + row < count; ++row) {
     const auto& item = pairing_.discovered(first + row);
-    drawMenuRow(38 + row * 18, first + row == listSelection_,
+    drawMenuRow(36 + row * 18, first + row == listSelection_,
                 clipped(item.name, 19), item.paired ? "paired" : "new");
   }
   if (count == 0) {
-    display.setCursor(5, 58);
-    display.print("Searching for CardBridge...");
+    canvas_.setCursor(6, 60);
+    canvas_.print("Searching for CardBridge...");
   }
+  drawHint("Tab rescan  Esc back");
 }
 
 void DeviceUi::drawPairCode() {
-  auto& display = M5Cardputer.Display;
-  display.setTextColor(TFT_WHITE, kBackground);
-  display.setCursor(7, 27);
-  display.print("Enter 6-digit code shown on Mac");
-  display.setTextSize(3);
-  display.setTextColor(kAccent, kBackground);
-  display.setTextDatum(middle_center);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(8, 28);
+  canvas_.print("Enter the 6-digit code on the Mac");
+  canvas_.setTextSize(3);
+  canvas_.setTextColor(kAccent, kBackground);
+  canvas_.setTextDatum(middle_center);
   String code = textEntry_;
   while (code.length() < 6) code += "-";
-  display.drawString(code, 120, 69);
-  display.setTextDatum(top_left);
-  display.setTextSize(1);
-  display.setTextColor(TFT_LIGHTGREY, kBackground);
-  display.setCursor(7, 108);
-  display.print("Enter: pair  Fn+Back: cancel");
-}
-
-void DeviceUi::drawMenuRow(int y, bool selected, const String& text,
-                           const String& value) {
-  auto& display = M5Cardputer.Display;
-  const uint16_t background = selected ? kSelected : kPanel;
-  display.fillRoundRect(4, y, 232, 16, 3, background);
-  display.setTextColor(selected ? TFT_WHITE : TFT_LIGHTGREY, background);
-  display.setCursor(8, y + 4);
-  display.print(text);
-  if (!value.isEmpty()) {
-    const int width = display.textWidth(value);
-    display.setCursor(231 - width, y + 4);
-    display.print(value);
-  }
+  canvas_.drawString(code, kWidth / 2, 70);
+  canvas_.setTextDatum(top_left);
+  canvas_.setTextSize(1);
+  drawHint("Enter pair  Fn+Bksp cancel");
 }
 
 String DeviceUi::clipped(const String& value, size_t length) const {

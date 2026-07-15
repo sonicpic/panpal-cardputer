@@ -47,6 +47,7 @@ class BridgeApp:
         config_path: Path | None = None,
         audio_device: str = "BlackHole 2ch",
         jitter_ms: int = 100,
+        gain: float = 20.0,
         no_audio: bool = False,
         dry_run: bool = False,
         advertise: bool = True,
@@ -65,7 +66,7 @@ class BridgeApp:
         self.audio = (
             NullAudioOutput(jitter_ms)
             if no_audio
-            else BlackHoleAudioOutput(audio_device, jitter_ms)
+            else BlackHoleAudioOutput(audio_device, jitter_ms, gain)
         )
         self.dry_run = dry_run
         self.advertise = advertise

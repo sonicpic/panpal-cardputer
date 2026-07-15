@@ -18,7 +18,7 @@ WifiManager wifi(settingsStore);
 PairingManager pairing(settingsStore, wifi);
 AudioTransmitter audio(pairing);
 KeyTransmitter keys(pairing, settings);
-DeviceUi ui(settingsStore, wifi, pairing, audio, settings);
+DeviceUi ui(settingsStore, wifi, pairing, audio, keys, settings);
 SerialConsole console(settingsStore, wifi, pairing, audio, settings);
 
 void printBootInfo() {

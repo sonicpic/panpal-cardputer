@@ -14,6 +14,7 @@ class KeyTransmitter {
 
   void tick(bool uiConsumesKeyboard);
   void releaseAll();
+  uint32_t sentKeys() const { return sentKeys_; }
 
  private:
   struct ActiveKey {
@@ -34,6 +35,7 @@ class KeyTransmitter {
   const DeviceSettings& settings_;
   ActiveKey previous_[6];
   size_t previousCount_ = 0;
+  uint32_t sentKeys_ = 0;
 };
 
 }  // namespace cardbridge
