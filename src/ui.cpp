@@ -1,5 +1,7 @@
 #include "ui.h"
 
+#include "ui_font_data.h"
+
 namespace cardbridge {
 namespace {
 
@@ -30,6 +32,16 @@ void DeviceUi::begin() {
   }
   Serial.printf("[ui] canvas=%p depth=%d heap=%u\n", buffer,
                 canvas_.getColorDepth(), ESP.getFreeHeap());
+  uiFontData_.set(ui_font_data::kData, ui_font_data::size());
+  if (uiFont_.loadFont(&uiFontData_)) {
+    uiFontFace_ = &uiFont_;
+    Serial.printf("[ui] smooth font=%u glyphs bytes=%u heap=%u\n",
+                  ui_font_data::kGlyphCount,
+                  static_cast<unsigned>(ui_font_data::size()), ESP.getFreeHeap());
+  } else {
+    uiFontFace_ = &fonts::efontCN_14;
+    Serial.println("[ui] smooth font load failed; using efontCN_14");
+  }
   canvas_.setTextFont(1);
   lastActivityMs_ = millis();
   render();
@@ -491,7 +503,7 @@ void DeviceUi::drawScrollingTitle(const String& title) {
     marqueeTitle_ = title;
     marqueeStartedMs_ = millis();
   }
-  canvas_.setFont(&fonts::efontCN_14);
+  canvas_.setFont(uiFontFace_);
   canvas_.setTextColor(TFT_WHITE, TFT_BLACK);
   const int textWidth = canvas_.textWidth(title);
   canvas_.setClipRect(x, 0, width, kStatusHeight);
@@ -518,7 +530,7 @@ void DeviceUi::drawScrollingActivity(const String& activity) {
     marqueeActivity_ = activity;
     marqueeActivityStartedMs_ = millis();
   }
-  canvas_.setFont(&fonts::efontCN_14);
+  canvas_.setFont(uiFontFace_);
   canvas_.setTextColor(TFT_WHITE, kPanel);
   const int textWidth = canvas_.textWidth(activity);
   canvas_.setClipRect(x, 111, width, 23);

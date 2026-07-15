@@ -151,7 +151,7 @@ Cardputer ADV 无 PSRAM，不在设备运行时解码大 PNG/WebP。构建时把
 - 额外运行时堆目标：不超过 8KB；不创建第二张全屏 Canvas。
 - 动画刷新：最高 8 fps，状态文字可按现有 UI 节奏刷新。
 
-中文会话标题使用 M5GFX 已带的 `efontCN_10`。字体数据保存在 Flash，不需要在 RAM 中加载完整字库。
+中文会话标题使用从 Source Han Sans CN Medium 生成的 15px、4-bit 抗锯齿 BFF 字库。压缩字形保存在 Flash，RAM 只保留 M5GFX 的字符定位表；缺字时仍可回退到内置字体加载失败保护。
 
 ### 5.4 实际构建链
 

@@ -34,6 +34,16 @@ python3 tools/pack_pet.py \
 
 The adapter validates the 1536×2288, 8×11 v2 atlas, selects the relevant animation rows, scales frames to 72×72, quantizes them to a shared 16-colour palette, and writes row-safe RLE into `src/pet_assets.*`. The Cardputer decodes those runs directly from flash and allocates no per-frame image buffer.
 
+## Build the Chinese UI font
+
+The generated `assets/fonts/cardbridge-ui-15.bff` embeds a 15px, 4-bit anti-aliased GB2312 font derived from Source Han Sans CN Medium 2.005R. Rebuild it with:
+
+```sh
+python3 tools/build_ui_font.py
+```
+
+The generator verifies the pinned source-font checksum and invokes `lv_font_conv` 1.5.3 through `npx`. Source Han Sans is distributed under the SIL Open Font License 1.1; the required notice is in `assets/fonts/LICENSE-SourceHanSans.txt`.
+
 ## Device controls
 
 - BtnA toggles keyboard forwarding. The keyboard icon at the far left of the status bar shows whether forwarding is on; toggling it never changes the current page.

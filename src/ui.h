@@ -117,6 +117,11 @@ class DeviceUi {
 
   M5Canvas canvas_{&M5Cardputer.Display};
   PetRenderer pet_;
+  // External BFFfont lets the canvas switch between its normal bitmap fonts
+  // and our anti-aliased Chinese face without unloading the runtime font.
+  lgfx::PointerWrapper uiFontData_;
+  lgfx::BFFfont uiFont_;
+  const lgfx::IFont* uiFontFace_ = nullptr;
   UiMode mode_ = UiMode::Local;
   Page page_ = Page::Main;
   uint8_t mainSelection_ = 0;
