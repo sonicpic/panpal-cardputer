@@ -6,6 +6,7 @@
 #include "models.h"
 #include "pairing.h"
 #include "settings_store.h"
+#include "ui.h"
 #include "wifi_mgr.h"
 
 namespace cardbridge {
@@ -17,9 +18,9 @@ class SerialConsole {
  public:
   SerialConsole(SettingsStore& store, WifiManager& wifi,
                 PairingManager& pairing, AudioTransmitter& audio,
-                DeviceSettings& settings)
+                DeviceUi& ui, DeviceSettings& settings)
       : store_(store), wifi_(wifi), pairing_(pairing), audio_(audio),
-        settings_(settings) {}
+        ui_(ui), settings_(settings) {}
 
   void tick();
 
@@ -32,6 +33,7 @@ class SerialConsole {
   WifiManager& wifi_;
   PairingManager& pairing_;
   AudioTransmitter& audio_;
+  DeviceUi& ui_;
   DeviceSettings& settings_;
   String buffer_;
 };

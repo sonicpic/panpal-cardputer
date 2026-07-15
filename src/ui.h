@@ -35,6 +35,9 @@ class DeviceUi {
   void begin();
   void tick();
   bool consumesKeyboard() const { return consumesKeyboard_; }
+  // Exposed so the serial console can drive/inspect the mode during bring-up.
+  void toggleMode() { setMode(mode_ == UiMode::Remote ? UiMode::Local : UiMode::Remote); }
+  const char* modeName() const { return mode_ == UiMode::Remote ? "remote" : "local"; }
 
  private:
   enum class Page : uint8_t {
@@ -108,7 +111,6 @@ class DeviceUi {
   bool screenOff_ = false;
   bool consumesKeyboard_ = false;
   bool suppressUntilRelease_ = false;
-  bool wasConnected_ = false;
   uint32_t lastActivityMs_ = 0;
   uint32_t lastRenderMs_ = 0;
   uint32_t lastComputerScanMs_ = 0;

@@ -80,7 +80,12 @@ bool AudioTransmitter::micStart() {
       .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
                                                       I2S_SLOT_MODE_STEREO),
       .gpio_cfg = {
-          .mclk = GPIO_NUM_0,  // unwired, but forces clock-tree init
+          // MCLK must point at a real GPIO or the IDF clock tree stays half-init
+      // and DIN floats (that was the 0xFFFF bug). The pin is never wired to
+      // the codec, so it only has to be free: GPIO13 is breakout-header only.
+      // NOT GPIO0 — that is BtnA, and driving it wedges the button at
+      // "pressed" (I2S does not restore the pad on i2s_del_channel).
+      .mclk = GPIO_NUM_13,
           .bclk = GPIO_NUM_41,
           .ws = GPIO_NUM_43,
           .dout = I2S_GPIO_UNUSED,
@@ -149,6 +154,12 @@ void AudioTransmitter::micStop() {
     i2s_channel_disable(rxChannel_);
     i2s_del_channel(rxChannel_);
     rxChannel_ = nullptr;
+    // i2s_del_channel leaves the pads driven; hand them back so nothing else
+    // (e.g. a button on a shared pin) reads a stuck level.
+    gpio_reset_pin(GPIO_NUM_13);
+    gpio_reset_pin(GPIO_NUM_41);
+    gpio_reset_pin(GPIO_NUM_43);
+    gpio_reset_pin(GPIO_NUM_46);
   }
   static constexpr uint8_t kDisableSeq[][2] = {
       {0x0D, 0xFC},  // SYSTEM: power down analog circuitry

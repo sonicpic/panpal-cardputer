@@ -40,6 +40,9 @@ void SerialConsole::handle(const String& line) {
 
   if (verb == "status") {
     printStatus();
+  } else if (verb == "mode") {
+    ui_.toggleMode();
+    Serial.printf("[console] mode -> %s\n", ui_.modeName());
   } else if (verb == "audio") {
     audio_.printDebug();
   } else if (verb == "scan") {
@@ -180,7 +183,9 @@ void SerialConsole::printStatus() {
       board == m5::board_t::board_M5CardputerADV ? "CardputerADV"
       : board == m5::board_t::board_M5Cardputer  ? "Cardputer"
                                                  : "other";
-  Serial.printf("[board] %s (%d)\n", boardName, static_cast<int>(board));
+  Serial.printf("[board] %s (%d) ui_mode=%s btnA=%d\n", boardName,
+                static_cast<int>(board), ui_.modeName(),
+                M5Cardputer.BtnA.isPressed());
   Serial.printf(
       "[status] wifi=%d ssid=\"%s\" ip=%s rssi=%d link=%s mac=\"%s\" "
       "paired=%u muted=%d level=%u dropped=%u heap=%u\n",

@@ -43,21 +43,20 @@ void DeviceUi::setMode(UiMode mode) {
 }
 
 void DeviceUi::tick() {
-  const bool connected = pairing_.connected();
-  // Auto-switch: entering a connection puts the keyboard to work on the Mac;
-  // losing it hands control back to the device.
-  if (connected && !wasConnected_) setMode(UiMode::Remote);
-  if (!connected && wasConnected_) setMode(UiMode::Local);
-  wasConnected_ = connected;
+  // The mode is the user's decision alone: connecting/disconnecting never
+  // changes it. Auto-entering Remote on connect stole the device out of the
+  // user's hands; a live link only means keys *can* be sent, not that they
+  // should be. Boot lands in Local; only BtnA leaves it.
 
   // BtnA: the dedicated physical mode switch (wakes the screen first).
   if (M5Cardputer.BtnA.wasClicked()) {
+    Serial.println("[ui] BtnA click");
     noteActivity();
     if (screenOff_) {
       screenOff_ = false;
       M5Cardputer.Display.setBrightness(settings_.brightness);
-    } else if (connected) {
-      setMode(mode_ == UiMode::Remote ? UiMode::Local : UiMode::Remote);
+    } else {
+      toggleMode();
     }
   }
 
@@ -433,13 +432,16 @@ void DeviceUi::drawHint(const String& text) {
 
 void DeviceUi::drawRemotePanel() {
   // Big, glanceable: you are typing on THAT Mac right now.
+  const bool linked = pairing_.connected();
   canvas_.setTextDatum(middle_center);
-  canvas_.setTextColor(kAccent, kBackground);
+  canvas_.setTextColor(linked ? kAccent : kBad, kBackground);
   canvas_.setTextSize(2);
   canvas_.drawString("REMOTE", kWidth / 2, 38);
-  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setTextColor(linked ? TFT_WHITE : kTextDim, kBackground);
   canvas_.setTextSize(2);
-  canvas_.drawString(clipped(pairing_.connectedName(), 16), kWidth / 2, 62);
+  canvas_.drawString(linked ? clipped(pairing_.connectedName(), 16)
+                            : String("no Mac linked"),
+                     kWidth / 2, 62);
   canvas_.setTextSize(1);
   canvas_.setTextColor(kTextDim, kBackground);
   canvas_.drawString(String("keys sent: ") + String(keys_.sentKeys()),

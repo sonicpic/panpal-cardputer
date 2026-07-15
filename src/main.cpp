@@ -19,7 +19,7 @@ PairingManager pairing(settingsStore, wifi);
 AudioTransmitter audio(pairing);
 KeyTransmitter keys(pairing, settings);
 DeviceUi ui(settingsStore, wifi, pairing, audio, keys, settings);
-SerialConsole console(settingsStore, wifi, pairing, audio, settings);
+SerialConsole console(settingsStore, wifi, pairing, audio, ui, settings);
 
 void printBootInfo() {
   Serial.println();
