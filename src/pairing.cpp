@@ -8,7 +8,7 @@ void PairingManager::begin(DeviceSettings* settings) {
   deviceId_ = WiFi.macAddress();
   deviceId_.replace(":", "");
   deviceId_.toLowerCase();
-  incoming_.reserve(1024);
+  incoming_.reserve(4096);
   if (settings_ && !settings_->lastMacId.isEmpty()) targetId_ = settings_->lastMacId;
 }
 
@@ -16,6 +16,7 @@ void PairingManager::tick() {
   if (!wifi_.connected()) {
     if (client_.connected()) client_.stop();
     state_ = LinkState::Offline;
+    agentOnline_ = false;
     setAudioReady(false);
     if (mdnsStarted_) MDNS.end();
     mdnsStarted_ = false;
@@ -33,7 +34,7 @@ void PairingManager::tick() {
     readIncoming();
     const uint32_t now = millis();
     if (now - lastHeartbeatMs_ >= kHeartbeatMs) {
-      StaticJsonDocument<128> ping;
+      StaticJsonDocument<256> ping;
       ping["t"] = "ping";
       if (!sendDocument(ping) || ++missedPongs_ >= kHeartbeatMissLimit) {
         connectionLost();
@@ -191,12 +192,21 @@ bool PairingManager::sendKey(const char* key, const char* action, bool cmd,
   return sendDocument(document);
 }
 
+bool PairingManager::sendAgentAck(const String& sessionId) {
+  if (!connected() || sessionId.isEmpty()) return false;
+  StaticJsonDocument<320> document;
+  document["t"] = "agent_ack";
+  document["id"] = sessionId;
+  return sendDocument(document);
+}
+
 bool PairingManager::sendDocument(JsonDocument& document) {
   if (!client_.connected()) return false;
   if (state_ == LinkState::Connected && targetToken_.length() == 64 &&
       !document["token"].is<String>()) {
     document["token"] = targetToken_;
   }
+  if (document.overflowed()) return false;
   char line[512];
   const size_t jsonLength = measureJson(document);
   if (jsonLength + 1 > sizeof(line)) return false;
@@ -213,7 +223,7 @@ void PairingManager::readIncoming() {
       if (!incoming_.isEmpty()) handleLine(incoming_);
       incoming_.clear();
     } else if (c != '\r') {
-      if (incoming_.length() < 1024) {
+      if (incoming_.length() < 4096) {
         incoming_ += c;
       } else {
         incoming_.clear();  // Reject oversized lines without losing the link.
@@ -223,12 +233,13 @@ void PairingManager::readIncoming() {
 }
 
 void PairingManager::handleLine(const String& line) {
-  StaticJsonDocument<768> document;
-  if (deserializeJson(document, line) != DeserializationError::Ok) return;
-  const String type = document["t"].as<String>();
+  incomingDocument_.clear();
+  if (deserializeJson(incomingDocument_, line) != DeserializationError::Ok) return;
+  const String type = incomingDocument_["t"].as<String>();
   if (state_ == LinkState::Connected &&
-      (type == "ping" || type == "pong" || type == "agent_status") &&
-      document["token"].as<String>() != targetToken_) {
+      (type == "ping" || type == "pong" || type == "agent_status" ||
+       type == "agent_list") &&
+      incomingDocument_["token"].as<String>() != targetToken_) {
     return;
   }
   if (type == "pong") {
@@ -236,13 +247,13 @@ void PairingManager::handleLine(const String& line) {
     return;
   }
   if (type == "ping") {
-    StaticJsonDocument<128> pong;
+    StaticJsonDocument<256> pong;
     pong["t"] = "pong";
     sendDocument(pong);
     return;
   }
   if (type == "pair_required") {
-    targetName_ = document["mac_name"] | targetName_;
+    targetName_ = incomingDocument_["mac_name"] | targetName_;
     connectedName_ = targetName_;
     state_ = LinkState::AwaitingPairCode;
     return;
@@ -252,7 +263,7 @@ void PairingManager::handleLine(const String& line) {
     return;
   }
   if (type == "paired") {
-    const String token = document["token"].as<String>();
+    const String token = incomingDocument_["token"].as<String>();
     if (token.length() < 64) {
       connectionLost();
       return;
@@ -267,13 +278,14 @@ void PairingManager::handleLine(const String& line) {
       index = static_cast<int>(pairedCount_++);
     }
     paired_[index].id = targetId_;
-    paired_[index].name = document["mac_name"] | targetName_;
+    paired_[index].name = incomingDocument_["mac_name"] | targetName_;
     paired_[index].token = token;
     store_.savePairedMacs(paired_, pairedCount_);
     connectedName_ = paired_[index].name;
     state_ = LinkState::Connected;
     setAudioReady(true);
     reconnectDelayMs_ = kReconnectMinMs;
+    requestAgentList();
     if (settings_) {
       settings_->lastMacId = targetId_;
       persistSettings();
@@ -281,10 +293,11 @@ void PairingManager::handleLine(const String& line) {
     return;
   }
   if (type == "hello_ok") {
-    connectedName_ = document["mac_name"] | targetName_;
+    connectedName_ = incomingDocument_["mac_name"] | targetName_;
     state_ = LinkState::Connected;
     setAudioReady(true);
     reconnectDelayMs_ = kReconnectMinMs;
+    requestAgentList();
     if (settings_) {
       settings_->lastMacId = targetId_;
       persistSettings();
@@ -302,7 +315,60 @@ void PairingManager::handleLine(const String& line) {
     sendHello();
     return;
   }
-  // Reserved agent_status and every future/unknown type are deliberately ignored.
+  if (type == "agent_status" || type == "agent_list") {
+    parseAgentSnapshot(incomingDocument_);
+    return;
+  }
+  // Every future/unknown type is deliberately ignored.
+}
+
+namespace {
+
+AgentStatus parseAgentStatus(const char* value) {
+  if (!value) return AgentStatus::Idle;
+  if (!strcmp(value, "running")) return AgentStatus::Running;
+  if (!strcmp(value, "needs_input")) return AgentStatus::NeedsInput;
+  if (!strcmp(value, "ready")) return AgentStatus::Ready;
+  if (!strcmp(value, "blocked")) return AgentStatus::Blocked;
+  if (!strcmp(value, "offline")) return AgentStatus::Offline;
+  return AgentStatus::Idle;
+}
+
+int8_t quotaRemaining(JsonVariantConst window) {
+  if (window.isNull() || !window["remaining"].is<int>()) return -1;
+  return static_cast<int8_t>(constrain(window["remaining"].as<int>(), 0, 100));
+}
+
+}  // namespace
+
+void PairingManager::parseAgentSnapshot(JsonDocument& document) {
+  const uint32_t sequence = document["seq"] | 0U;
+  if (agentOnline_ && sequence < agentSeq_) return;
+  agentSeq_ = sequence;
+  agentFocusId_ = document["focus_id"].as<String>();
+  agentFocusSeq_ = document["focus_seq"] | 0U;
+  agentQuota_.weeklyRemaining = quotaRemaining(document["quota"]["weekly"]);
+  agentQuota_.fiveHourRemaining = quotaRemaining(document["quota"]["five_hour"]);
+
+  agentCount_ = 0;
+  for (JsonObjectConst item : document["items"].as<JsonArrayConst>()) {
+    if (agentCount_ >= kMaxAgentSessions) break;
+    AgentSession& agent = agents_[agentCount_++];
+    agent.id = item["id"].as<String>();
+    agent.title = item["title"] | "Codex session";
+    agent.project = item["project"].as<String>();
+    agent.activity = item["activity"] | "Session ready";
+    agent.status = parseAgentStatus(item["status"]);
+    agent.unread = item["unread"] | false;
+  }
+  agentOnline_ = true;
+}
+
+void PairingManager::requestAgentList() {
+  StaticJsonDocument<256> request;
+  request["t"] = "agent_list_req";
+  request["limit"] = kMaxAgentSessions;
+  sendDocument(request);
 }
 
 void PairingManager::disconnect(bool manual) {
@@ -310,6 +376,7 @@ void PairingManager::disconnect(bool manual) {
   incoming_.clear();
   connectedName_.clear();
   state_ = LinkState::Offline;
+  agentOnline_ = false;
   setAudioReady(false);
   manualDisconnect_ = manual;
   missedPongs_ = 0;
@@ -327,6 +394,7 @@ void PairingManager::connectionLost() {
   client_.stop();
   connectedName_.clear();
   state_ = LinkState::Offline;
+  agentOnline_ = false;
   setAudioReady(false);
   scheduleReconnect();
 }

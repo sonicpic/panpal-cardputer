@@ -28,6 +28,7 @@ class PairingManager {
 
   bool sendKey(const char* key, const char* action, bool cmd, bool shift,
                bool option, bool control);
+  bool sendAgentAck(const String& sessionId);
   bool audioEndpoint(IPAddress& ip, uint8_t token[32]) const;
 
   LinkState state() const { return state_; }
@@ -44,6 +45,13 @@ class PairingManager {
   size_t discoveredCount() const { return discoveredCount_; }
   const DiscoveredMac& discovered(size_t index) const { return discovered_[index]; }
 
+  bool agentOnline() const { return agentOnline_ && connected(); }
+  size_t agentCount() const { return agentCount_; }
+  const AgentSession& agent(size_t index) const { return agents_[index]; }
+  const String& agentFocusId() const { return agentFocusId_; }
+  uint32_t agentFocusSeq() const { return agentFocusSeq_; }
+  const AgentQuota& agentQuota() const { return agentQuota_; }
+
  private:
   int pairedIndexById(const String& id) const;
   int discoveredIndexById(const String& id) const;
@@ -53,6 +61,8 @@ class PairingManager {
   bool sendDocument(JsonDocument& document);
   void readIncoming();
   void handleLine(const String& line);
+  void parseAgentSnapshot(JsonDocument& document);
+  void requestAgentList();
   void connectionLost();
   void scheduleReconnect();
   void persistSettings();
@@ -75,6 +85,18 @@ class PairingManager {
   IPAddress targetIp_;
   uint16_t targetPort_ = kControlPort;
   String connectedName_;
+
+  AgentSession agents_[kMaxAgentSessions];
+  size_t agentCount_ = 0;
+  String agentFocusId_;
+  uint32_t agentFocusSeq_ = 0;
+  AgentQuota agentQuota_;
+  uint32_t agentSeq_ = 0;
+  bool agentOnline_ = false;
+  // The largest inbound message is an eight-session agent snapshot. Keeping
+  // its JSON arena in the object avoids a 4 KiB loop-task stack spike and
+  // repeated heap fragmentation on every status update.
+  StaticJsonDocument<8192> incomingDocument_;
 
   LinkState state_ = LinkState::Offline;
   bool mdnsStarted_ = false;

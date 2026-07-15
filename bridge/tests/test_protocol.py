@@ -37,6 +37,12 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             decode_message(json.dumps(["not", "an", "object"]).encode())
 
+    def test_json_line_uses_compact_utf8_for_session_titles(self) -> None:
+        message = {"t": "agent_status", "title": "会话管理与宠物动画"}
+        encoded = encode_message(message)
+        self.assertNotIn(b"\\u", encoded)
+        self.assertEqual(decode_message(encoded), message)
+
 
 class ConfigTests(unittest.TestCase):
     def test_pairing_persists_a_32_byte_random_token(self) -> None:

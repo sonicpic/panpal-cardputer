@@ -12,7 +12,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .agents import AgentStore
 from .audio import BlackHoleAudioOutput, NullAudioOutput
+from .codex_monitor import CodexMonitor, start_hook_receiver
 from .config import BridgeConfig
 from .keyboard import KeyInjector
 from .protocol import (
@@ -53,6 +55,8 @@ class BridgeApp:
         advertise: bool = True,
         record_path: Path | None = None,
         pair_code_factory: Callable[[], str] | None = None,
+        enable_agents: bool = True,
+        hook_port: int = 7790,
     ) -> None:
         self.host = host
         self.tcp_port = tcp_port
@@ -71,6 +75,13 @@ class BridgeApp:
         self.dry_run = dry_run
         self.advertise = advertise
         self.pair_code_factory = pair_code_factory or (lambda: f"{secrets.randbelow(1_000_000):06d}")
+        self.enable_agents = enable_agents
+        self.hook_port = hook_port
+        self.agents = AgentStore()
+        self.codex_monitor = CodexMonitor(self.agents)
+        self.hook_transport: asyncio.DatagramTransport | None = None
+        self._agent_clients: dict[asyncio.StreamWriter, str] = {}
+        self._agent_broadcast_pending = False
         self.active_tokens: dict[str, tuple[str, str]] = {}
         self.tcp_server: asyncio.AbstractServer | None = None
         self.udp_transport: asyncio.DatagramTransport | None = None
@@ -78,6 +89,7 @@ class BridgeApp:
         self.service_info: Any = None
 
     async def start(self) -> None:
+        self.agents.set_on_change(self._agent_changed)
         self.audio.start()
         self.keyboard.check_accessibility(prompt=not self.dry_run)
         loop = asyncio.get_running_loop()
@@ -97,6 +109,14 @@ class BridgeApp:
         self.tcp_port = int(self.tcp_server.sockets[0].getsockname()[1])
         if self.advertise:
             await self._start_mdns()
+        if self.enable_agents:
+            try:
+                self.hook_transport, self.hook_port = await start_hook_receiver(
+                    self.agents, self.hook_port
+                )
+            except OSError as exc:
+                LOG.warning("Codex Hook receiver unavailable: %s", exc)
+            await self.codex_monitor.start()
         LOG.info(
             "CardBridge ready: TCP %d, UDP %d, Mac name %s",
             self.tcp_port,
@@ -122,6 +142,11 @@ class BridgeApp:
         )
 
     async def stop(self) -> None:
+        self.agents.set_on_change(None)
+        await self.codex_monitor.stop()
+        if self.hook_transport is not None:
+            self.hook_transport.close()
+            self.hook_transport = None
         self._write_wav()
         if self.service_info is not None and self.zeroconf is not None:
             try:
@@ -250,7 +275,9 @@ class BridgeApp:
 
             assert device_id is not None
             self.active_tokens[authenticated_token] = (device_id, peer_ip)
+            self._agent_clients[writer] = authenticated_token
             LOG.info("device %s authenticated", device_id)
+            await self._send_agent_snapshot(writer, authenticated_token, "agent_status")
             await self._authenticated_loop(
                 reader, writer, pressed, authenticated_token
             )
@@ -266,6 +293,7 @@ class BridgeApp:
                 peer_ip,
             ):
                 self.active_tokens.pop(authenticated_token, None)
+            self._agent_clients.pop(writer, None)
             writer.close()
             try:
                 await writer.wait_closed()
@@ -316,8 +344,13 @@ class BridgeApp:
                     elif action == "up":
                         pressed.pop(key, None)
             elif message_type == "agent_list_req":
-                # Protocol reservation for phase two. It is intentionally a no-op.
-                continue
+                limit = message.get("limit", 8)
+                clean_limit = max(1, min(8, int(limit))) if isinstance(limit, int) else 8
+                await self._send_agent_snapshot(writer, token, "agent_list", clean_limit)
+            elif message_type == "agent_ack":
+                session_id = message.get("id")
+                if isinstance(session_id, str):
+                    self.agents.acknowledge(session_id)
             else:
                 # Forward-compatible parser: ignore every unknown message type.
                 continue
@@ -336,6 +369,38 @@ class BridgeApp:
     async def _send(self, writer: asyncio.StreamWriter, message: dict[str, Any]) -> None:
         writer.write(encode_message(message))
         await writer.drain()
+
+    def _agent_changed(self) -> None:
+        if self._agent_broadcast_pending:
+            return
+        self._agent_broadcast_pending = True
+        asyncio.get_running_loop().call_soon(
+            lambda: asyncio.create_task(self._broadcast_agent_status())
+        )
+
+    async def _broadcast_agent_status(self) -> None:
+        self._agent_broadcast_pending = False
+        for writer, token in tuple(self._agent_clients.items()):
+            if writer.is_closing():
+                self._agent_clients.pop(writer, None)
+                continue
+            try:
+                await self._send_agent_snapshot(writer, token, "agent_status")
+            except (ConnectionError, OSError):
+                self._agent_clients.pop(writer, None)
+
+    async def _send_agent_snapshot(
+        self,
+        writer: asyncio.StreamWriter,
+        token: str,
+        message_type: str,
+        limit: int = 8,
+    ) -> None:
+        message = self.agents.snapshot(limit)
+        message["t"] = message_type
+        message["provider"] = "codex"
+        message["token"] = token
+        await self._send(writer, message)
 
     def _show_pair_code(self, code: str, device_id: str) -> None:
         # flush + log: stdout is block-buffered when redirected to a file, and

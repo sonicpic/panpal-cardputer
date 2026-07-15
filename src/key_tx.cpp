@@ -40,13 +40,21 @@ size_t KeyTransmitter::buildCurrent(ActiveKey* output, size_t capacity) {
   bool control = state.ctrl;
   size_t count = 0;
 
-  // Modifier keys are real down/up events as well as flags on other keys.
+  // Shift travels only as a flag on the actual key event because a standalone
+  // Shift event can toggle Chinese/English input before the intended key.
+  // Ctrl/Cmd/Option retain real down/up events so they also work on their own
+  // and across multi-key shortcuts.
   const auto& positions = M5Cardputer.Keyboard.keyList();
   for (const auto& position : positions) {
     const uint8_t physical =
         M5Cardputer.Keyboard.getKeyValue(position).value_first;
-    if (!isKeyboardModifier(physical) || count >= capacity) continue;
-    copyKey(output[count].key, sizeof(output[count].key), mapModifier(physical));
+    if (!isKeyboardModifier(physical) || physical == KEY_LEFT_SHIFT ||
+        count >= capacity) {
+      continue;
+    }
+    const char* mapped = mapModifier(physical);
+    if (!mapped) continue;
+    copyKey(output[count].key, sizeof(output[count].key), mapped);
     output[count].physical = static_cast<uint8_t>(position.y * 14 + position.x);
     output[count].cmd = cmd;
     output[count].shift = shift;
@@ -65,7 +73,12 @@ size_t KeyTransmitter::buildCurrent(ActiveKey* output, size_t capacity) {
     const char* mapped = state.fn
         ? mapFnKey(physical, settings_.typelessFunctionKey)
         : mapSpecialKey(physical);
-    if (latched) {
+    if (state.fn && mapped) {
+      // A TCA8418 chord arrives as individual events. If the printable key
+      // was observed just before Fn, prefer the now-complete Fn chord instead
+      // of keeping the old printable mapping (notably Fn+` -> Escape).
+      copyKey(output[count].key, sizeof(output[count].key), mapped);
+    } else if (latched) {
       // Keep the logical key until this physical switch is released. In
       // particular, releasing Fn before Space must release F13, not type Space.
       copyKey(output[count].key, sizeof(output[count].key), latched->key);
@@ -112,12 +125,10 @@ void KeyTransmitter::send(const ActiveKey& key, const char* action) {
   bool control = key.control;
   if (strcmp(action, "up") == 0) {
     if (strcmp(key.key, "cmd") == 0) cmd = false;
-    if (strcmp(key.key, "shift") == 0) shift = false;
     if (strcmp(key.key, "alt") == 0) option = false;
     if (strcmp(key.key, "ctrl") == 0) control = false;
-  } else {
-    ++sentKeys_;
   }
+  if (strcmp(action, "down") == 0) ++sentKeys_;
   pairing_.sendKey(key.key, action, cmd, shift, option, control);
 }
 

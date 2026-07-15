@@ -1,6 +1,6 @@
 # CardBridge Mac service
 
-The bridge advertises `_cardbridge._tcp` over mDNS, pairs Cardputers with a six-digit code, injects authenticated TCP key events with Quartz, and writes authenticated UDP microphone audio into **BlackHole 2ch**. It is a background service with no application UI.
+The bridge advertises `_cardbridge._tcp` over mDNS, pairs Cardputers with a six-digit code, injects authenticated TCP key events with Quartz, writes authenticated UDP microphone audio into **BlackHole 2ch**, and publishes a privacy-trimmed view of local Codex sessions. It is a background service with no application UI.
 
 ## 1. Install BlackHole and configure Typeless
 
@@ -14,7 +14,7 @@ The bridge writes to the BlackHole output side; Typeless and QuickTime read the 
 ## 2. Create the Python 3.10 environment
 
 ```sh
-cd "/Users/chaos/m5 cardputer/bridge"
+cd /path/to/m5-cardputer/bridge
 /usr/bin/python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -26,7 +26,7 @@ If `/usr/bin/python3` is not Python 3.10 or newer, invoke the installed Python 3
 ## 3. First run and pairing
 
 ```sh
-cd "/Users/chaos/m5 cardputer/bridge"
+cd /path/to/m5-cardputer/bridge
 source .venv/bin/activate
 cardbridge
 ```
@@ -46,22 +46,47 @@ cardbridge --dry-run --no-audio -v
 Run the installer from the activated virtual environment so the LaunchAgent records that exact Python executable:
 
 ```sh
-source "/Users/chaos/m5 cardputer/bridge/.venv/bin/activate"
-python "/Users/chaos/m5 cardputer/bridge/install_launch_agent.py" install
+cd /path/to/m5-cardputer/bridge
+source .venv/bin/activate
+python install_launch_agent.py install
 ```
 
 Logs are written to `~/.cardbridge/bridge.log` and `~/.cardbridge/bridge-error.log`. Remove the service with:
 
 ```sh
-python "/Users/chaos/m5 cardputer/bridge/install_launch_agent.py" uninstall
+python install_launch_agent.py uninstall
 ```
 
-## 5. End-to-end simulator
+## 5. Enable Codex live status
+
+Session names/projects and account limits come from a separate read-only official Codex App Server. Real-time state comes from official lifecycle Hooks, reported by a fail-open local script over UDP `127.0.0.1:7790`. No prompt text, transcript, tool arguments, or `auth.json` contents are sent to CardBridge.
+
+Preview the merged user-level hook configuration first:
+
+```sh
+python install_codex_hooks.py show
+```
+
+Install it when the paths look correct:
+
+```sh
+python install_codex_hooks.py install
+```
+
+Restart or reload Codex and review its hook-trust prompt. Do not bypass that trust check. To remove only CardBridge's hook commands while preserving unrelated hooks:
+
+```sh
+python install_codex_hooks.py uninstall
+```
+
+Use `cardbridge --no-codex` to disable both the App Server monitor and local hook receiver, or `--hook-port` to choose another loopback port (set the same `CARDBRIDGE_HOOK_PORT` for the reporter).
+
+## 6. End-to-end simulator
 
 Terminal 1:
 
 ```sh
-cd "/Users/chaos/m5 cardputer/bridge"
+cd /path/to/m5-cardputer/bridge
 source .venv/bin/activate
 cardbridge --dry-run --no-audio -v
 ```
@@ -69,7 +94,7 @@ cardbridge --dry-run --no-audio -v
 Terminal 2:
 
 ```sh
-cd "/Users/chaos/m5 cardputer/bridge"
+cd /path/to/m5-cardputer/bridge
 source .venv/bin/activate
 python fake_device.py
 ```
@@ -79,13 +104,13 @@ Enter the pairing code printed in terminal 1. The simulator authenticates, sends
 Run all dependency-free tests with:
 
 ```sh
-cd "/Users/chaos/m5 cardputer/bridge"
+cd /path/to/m5-cardputer/bridge
 PYTHONPATH=. python -m unittest discover -s tests -v
 ```
 
 ## Protocol and recovery behavior
 
-- TCP `7788`: newline-delimited JSON, five-second ping/pong, disconnect after three misses. Every post-handshake message carries the session token; unknown authenticated message types are ignored for forward compatibility.
+- TCP `7788`: newline-delimited UTF-8 JSON capped at 4096 bytes, five-second ping/pong, disconnect after three misses. Every post-handshake message carries the session token; unknown authenticated message types are ignored for forward compatibility.
 - UDP `7789`: network-order `seq(u32) + timestamp_ms(u32) + HMAC8`, followed by exactly 640 bytes of little-endian PCM16 mono audio.
 - Playback starts at a configurable 100 ms jitter depth. Missing sequences become silence; packets are not retransmitted.
 - Firmware stops microphone capture and UDP sending whenever muted or disconnected. Reconnect uses exponential backoff capped at 30 seconds.

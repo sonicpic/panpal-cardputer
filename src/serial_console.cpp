@@ -15,6 +15,18 @@ const char* linkStateName(LinkState state) {
   return "offline";
 }
 
+const char* agentStatusName(AgentStatus status) {
+  switch (status) {
+    case AgentStatus::Offline: return "offline";
+    case AgentStatus::Idle: return "idle";
+    case AgentStatus::Running: return "running";
+    case AgentStatus::NeedsInput: return "needs_input";
+    case AgentStatus::Ready: return "ready";
+    case AgentStatus::Blocked: return "blocked";
+  }
+  return "idle";
+}
+
 }  // namespace
 
 void SerialConsole::tick() {
@@ -73,6 +85,22 @@ void SerialConsole::handle(const String& line) {
     Serial.printf("[console] forget -> %d\n", wifi_.forget(rest));
   } else if (verb == "computers") {
     printComputers();
+  } else if (verb == "agents") {
+    const AgentQuota& quota = pairing_.agentQuota();
+    Serial.printf("[agents] online=%d count=%u focus=%s weekly=%d five_hour=%d\n",
+                  pairing_.agentOnline(), pairing_.agentCount(),
+                  pairing_.agentFocusId().c_str(), quota.weeklyRemaining,
+                  quota.fiveHourRemaining);
+    for (size_t i = 0; i < pairing_.agentCount(); ++i) {
+      const AgentSession& agent = pairing_.agent(i);
+      Serial.printf("[agents] %u %s unread=%d project=\"%s\" title=\"%s\" activity=\"%s\"\n",
+                    i, agentStatusName(agent.status), agent.unread,
+                    agent.project.c_str(), agent.title.c_str(),
+                    agent.activity.c_str());
+    }
+  } else if (verb == "page" && rest == "codex") {
+    ui_.showCodex();
+    Serial.println("[console] page -> codex");
   } else if (verb == "discover") {
     pairing_.requestDiscovery();
     Serial.println("[console] discovery requested");
@@ -170,7 +198,7 @@ void SerialConsole::handle(const String& line) {
     Serial.println(
         "[console] status | scan | wifis | wifi <ssid> <pw> | forget <ssid> | "
         "computers | discover | connect <n> | pair <code> | key <k> [mods] | "
-        "mute on|off | disconnect");
+        "agents | page codex | mute on|off | disconnect");
   } else {
     Serial.printf("[console] unknown command \"%s\" (try 'help')\n",
                   verb.c_str());

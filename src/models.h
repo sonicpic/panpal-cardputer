@@ -48,4 +48,30 @@ enum class LinkState : uint8_t {
   Connected,
 };
 
+constexpr size_t kMaxAgentSessions = 8;
+
+enum class AgentStatus : uint8_t {
+  Offline,
+  Idle,
+  Running,
+  NeedsInput,
+  Ready,
+  Blocked,
+};
+
+struct AgentSession {
+  String id;
+  String title;
+  String project;
+  String activity;
+  AgentStatus status = AgentStatus::Idle;
+  bool unread = false;
+};
+
+struct AgentQuota {
+  // -1 means the server did not report that quota window.
+  int8_t weeklyRemaining = -1;
+  int8_t fiveHourRemaining = -1;
+};
+
 }  // namespace cardbridge
