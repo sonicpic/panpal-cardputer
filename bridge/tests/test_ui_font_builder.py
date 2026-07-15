@@ -17,6 +17,10 @@ class UiFontBuilderTests(unittest.TestCase):
         self.assertTrue(asset.is_file())
         self.assertEqual(sha256(asset), OUTPUT_SHA256)
 
+        # BFF `head` stores the compression algorithm at byte 41. Keep this
+        # zero: M5GFX 0.2.25 corrupts some compressed glyph bitmaps.
+        self.assertEqual(asset.read_bytes()[41], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

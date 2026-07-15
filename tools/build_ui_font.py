@@ -20,7 +20,11 @@ FONT_SHA256 = "a94e558a2fe972bee4f46bce0843abff37063fd68c33f1e7d9058f6f09432b01"
 CONVERTER_VERSION = "1.5.3"
 PIXEL_SIZE = 15
 BITS_PER_PIXEL = 4
-OUTPUT_SHA256 = "13bd9ee3a924735e47f0e8a4995acc3dbc4aa955b6c247d13a9b901a67113585"
+# Updated whenever the pinned converter settings intentionally change.
+# The current asset is deliberately uncompressed: lv_font_conv documents
+# --no-compress as the compatibility path, and M5GFX 0.2.25 misdecodes some
+# compressed glyphs whose first bitmap pixel is zero.
+OUTPUT_SHA256 = "4556c70fb4f77c5dd79880eda92afe122c9121244c34f10e39c3be559e57f7d0"
 
 
 def glyph_codepoints() -> list[int]:
@@ -124,6 +128,7 @@ def main() -> None:
                 "bin",
                 "--bpp",
                 str(BITS_PER_PIXEL),
+                "--no-compress",
                 "--no-kerning",
                 "-o",
                 str(binary),
