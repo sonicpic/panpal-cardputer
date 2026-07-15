@@ -85,6 +85,7 @@ class DeviceUi {
   void drawStatusBar();
   String statusBarTitle() const;
   void drawScrollingTitle(const String& title);
+  void drawScrollingActivity(const String& activity);
   void drawKeyboardModeIcon(int x, int y);
   void drawMain();
   void drawComingSoon();
@@ -128,6 +129,8 @@ class DeviceUi {
   uint32_t lastAgentFocusSeq_ = 0;
   String marqueeTitle_;
   uint32_t marqueeStartedMs_ = 0;
+  String marqueeActivity_;
+  uint32_t marqueeActivityStartedMs_ = 0;
   String pendingSsid_;
   String textEntry_;
   bool screenOff_ = false;

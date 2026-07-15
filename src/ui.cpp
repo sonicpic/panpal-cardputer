@@ -470,9 +470,9 @@ String DeviceUi::statusBarTitle() const {
     case Page::Codex: {
       const AgentSession* agent = selectedAgent();
       if (!agent) return "Codex";
-      if (agent->project.isEmpty()) return agent->title;
-      if (agent->title.isEmpty() || agent->title == agent->project) return agent->project;
-      return agent->project + " · " + agent->title;
+      if (!agent->title.isEmpty()) return agent->title;
+      if (!agent->project.isEmpty()) return agent->project;
+      return "Codex";
     }
     case Page::Settings: return "Setting";
     case Page::Wifi: return "WiFi";
@@ -491,7 +491,7 @@ void DeviceUi::drawScrollingTitle(const String& title) {
     marqueeTitle_ = title;
     marqueeStartedMs_ = millis();
   }
-  canvas_.setFont(&fonts::efontCN_10);
+  canvas_.setFont(&fonts::efontCN_14);
   canvas_.setTextColor(TFT_WHITE, TFT_BLACK);
   const int textWidth = canvas_.textWidth(title);
   canvas_.setClipRect(x, 0, width, kStatusHeight);
@@ -504,6 +504,33 @@ void DeviceUi::drawScrollingTitle(const String& title) {
     const int offset = elapsed < 1200 ? 0 : ((elapsed - 1200) / 40) % travel;
     canvas_.drawString(title, x - offset, 10);
     canvas_.drawString(title, x - offset + travel, 10);
+  }
+  canvas_.clearClipRect();
+  canvas_.setTextDatum(top_left);
+  canvas_.setTextFont(1);
+}
+
+void DeviceUi::drawScrollingActivity(const String& activity) {
+  constexpr int x = 18;
+  constexpr int y = 122;
+  constexpr int width = 216;
+  if (activity != marqueeActivity_) {
+    marqueeActivity_ = activity;
+    marqueeActivityStartedMs_ = millis();
+  }
+  canvas_.setFont(&fonts::efontCN_14);
+  canvas_.setTextColor(TFT_WHITE, kPanel);
+  const int textWidth = canvas_.textWidth(activity);
+  canvas_.setClipRect(x, 111, width, 23);
+  canvas_.setTextDatum(middle_left);
+  if (textWidth <= width) {
+    canvas_.drawString(activity, x, y);
+  } else {
+    const uint32_t elapsed = millis() - marqueeActivityStartedMs_;
+    const int travel = textWidth + 24;
+    const int offset = elapsed < 1000 ? 0 : ((elapsed - 1000) / 40) % travel;
+    canvas_.drawString(activity, x - offset, y);
+    canvas_.drawString(activity, x - offset + travel, y);
   }
   canvas_.clearClipRect();
   canvas_.setTextDatum(top_left);
@@ -648,15 +675,6 @@ void DeviceUi::drawCodex() {
   }
   pet_.draw(canvas_, visual, 84, 28, millis());
 
-  if (pairing_.agentCount() > 1) {
-    canvas_.setTextFont(1);
-    canvas_.setTextColor(kTextDim, kBackground);
-    canvas_.setCursor(77, 63);
-    canvas_.print("<");
-    canvas_.setCursor(158, 63);
-    canvas_.print(">");
-  }
-
   uint8_t attention = 0;
   for (size_t i = 0; i < pairing_.agentCount(); ++i) {
     if (i == agentSelection_) continue;
@@ -680,14 +698,7 @@ void DeviceUi::drawCodex() {
   canvas_.fillRect(0, 110, kWidth, 25, kPanel);
   canvas_.drawFastHLine(0, 110, kWidth, 0x2945);
   canvas_.fillCircle(9, 122, 3, statusColor);
-  canvas_.setFont(&fonts::efontCN_10);
-  canvas_.setTextColor(TFT_WHITE, kPanel);
-  canvas_.setClipRect(18, 111, 216, 23);
-  canvas_.setTextDatum(middle_left);
-  canvas_.drawString(activity, 18, 122);
-  canvas_.clearClipRect();
-  canvas_.setTextDatum(top_left);
-  canvas_.setTextFont(1);
+  drawScrollingActivity(activity);
 }
 
 void DeviceUi::drawMenuRow(int y, bool selected, const String& text,
