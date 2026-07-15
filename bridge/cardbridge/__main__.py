@@ -22,6 +22,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--dry-run", action="store_true", help="log key events instead of injecting them")
     result.add_argument("--no-mdns", action="store_true", help="disable service discovery advertisement")
     result.add_argument("--record", type=Path, help="also write received PCM to this WAV file (diagnostic)")
+    result.add_argument("--no-codex", action="store_true", help="disable Codex session monitoring")
+    result.add_argument("--hook-port", type=int, default=7790, help="local-only Codex Hook UDP port")
     result.add_argument("-v", "--verbose", action="store_true")
     return result
 
@@ -39,6 +41,8 @@ async def run(args: argparse.Namespace) -> None:
         dry_run=args.dry_run,
         advertise=not args.no_mdns,
         record_path=args.record,
+        enable_agents=not args.no_codex,
+        hook_port=args.hook_port,
     )
     await app.start()
     stop = asyncio.Event()

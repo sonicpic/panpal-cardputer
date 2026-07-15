@@ -24,6 +24,7 @@ class ServerEndToEndTests(unittest.IsolatedAsyncioTestCase):
             no_audio=True,
             dry_run=True,
             advertise=False,
+            enable_agents=False,
             pair_code_factory=lambda: "483291",
         )
         await self.app.start()
@@ -67,7 +68,11 @@ class ServerEndToEndTests(unittest.IsolatedAsyncioTestCase):
         writer.write(encode_message({"t": "agent_list_req", "token": token}))
         writer.write(encode_message({"t": "ping", "token": token}))
         await writer.drain()
-        self.assertEqual((await self.read(reader))["t"], "pong")
+        received = [await self.read(reader) for _ in range(3)]
+        self.assertEqual(
+            {item["t"] for item in received},
+            {"agent_status", "agent_list", "pong"},
+        )
 
         payload = struct.pack("<320h", *([1234] * 320))
         valid = pack_audio(token, 7, 140, payload)
@@ -153,6 +158,7 @@ class MdnsLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 no_audio=True,
                 dry_run=True,
                 advertise=True,
+                enable_agents=False,
             )
             await asyncio.wait_for(app.start(), 5)
             self.assertIsNotNone(app.service_info)

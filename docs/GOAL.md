@@ -16,12 +16,12 @@
 ```
 常驻服务(无 UI,连接建立即生效,与当前页面无关):
   🎤 麦克风推流(UDP)    ⌨️ 键盘透传(TCP)
-  顶部状态栏:WiFi名/信号 · 已连接Mac名 · 🎤开/静音 · 电量
+  顶部状态栏:键盘模式图标 · WiFi信号图标 · 居中页面/会话标题 · 电量图标
 
 屏幕页面(主菜单三项):
   ① Claude 助手   —— 二期实现,一期放占位页("Coming soon")
-  ② Codex 助手    —— 二期实现,一期放占位页
-  ③ 设置          —— WiFi 管理 / 电脑(配对)管理 / 麦克风静音 / 亮度 / 熄屏时间
+  ② Codex 助手    —— 当前实现会话跟随/切换、宠物状态动画、限额与任务状态
+  ③ Setting       —— WiFi 管理 / 电脑(配对)管理 / 亮度 / 熄屏时间
 ```
 
 ### 2.1 WiFi 管理(用户强调的体验要求)
@@ -71,40 +71,51 @@
 - 键位映射:Cardputer 的 fn 层 → macOS 修饰键/方向键/F13;映射表放独立源文件,便于调整。
 - 心跳 `{"t":"ping"}`/`{"t":"pong"}` 5s 间隔,3 次无响应视为断线,进入自动重连。
 
-### 3.4 为二期预留
-- TCP 协议加消息类型 `{"t":"agent_status",...}`(桥接→设备)与 `{"t":"agent_list_req"}`(设备→桥接)即可,一期不实现内容,但解析器遇到未知 `t` 必须忽略而非断连。
+### 3.4 Agent 状态协议
+- TCP 使用 `agent_status`(主动快照)、`agent_list_req` / `agent_list`(请求快照)和 `agent_ack`(只清 CardBridge 本地提醒)。最多 8 个会话，整行 UTF-8 JSON 仍限制 4096 字节；未知 `t` 必须忽略而非断连。
+- 会话目录与周/5h限额来自官方 Codex App Server；实时状态来自官方 Hooks。桥接只保留 ID、裁剪后的标题、项目目录末级、状态和短活动说明，不读取完整 transcript 或 `auth.json`。
+- 宠物默认跟随最近发生 `UserPromptSubmit` 的会话；设备左右键可临时切换显示其他会话。其他会话只显示提醒计数，不强抢当前宠物。
 
 ## 3.5 v4 UX 改版(用户验收反馈,2026-07-14 定稿)
 
 **根因**:一套键盘两个主人(给 Mac 打字 vs 操控本机)。v3 用 Fn+组合避冲突,体验差。改为**显式双模式**:
 
-- **R1 双模式 + 物理键切换**:【遥控模式】所有按键→Mac;【本机模式】所有按键→本机 UI。**按屏幕旁物理按钮 BtnA(G0)切换**,永不与打字冲突。连上 Mac 自动进遥控,断连自动回本机。屏幕大图标标明当前模式。
-- **R2 本机模式自然键位(去 Fn 化)**:`;` `.` `,` `/`(丝印方向键)+ `ijkl` = 上下左右;`Enter`=确认;`` ` ``(ESC 位)或 `Backspace`=返回上一页。全页面统一,底部常驻键位提示。文本输入页(密码/配对码)例外:字符正常输入,Backspace 删字,Fn+Backspace 取消。
+- **R1 双模式 + 物理键切换**:【键盘开启】所有按键→Mac、当前页面保持不变且不可操作;【键盘关闭】所有按键→本机 UI。**按屏幕旁物理按钮 BtnA(G0)切换**,永不与打字冲突。连接状态不自动切换模式。顶部通栏最左侧用键盘图标显示开关状态,不再使用独立遥控页面。
+- **R2 本机模式自然键位(去 Fn 化)**:`;` `.` `,` `/`(丝印方向键)+ `ijkl` = 上下左右;`Enter`=确认;`` ` ``(ESC 位)=返回上一页。WiFi/电脑列表用单独 `Backspace` 忘记/删除;文本输入页用 `Backspace` 删字、ESC 取消;密码输入保留 Shift 大小写和符号。禁止要求 Fn 组合键。
 - **R3 消除闪屏**:全部 UI 改 M5Canvas 离屏渲染整帧后 pushSprite,禁止直接 fillScreen 重绘。
-- **R4 图形化界面**:主菜单改图标卡片式(左右选卡);状态栏图形化(WiFi 信号格/连接点/MIC 电平条/电池);遥控模式显示大状态面板(Mac 名、打字计数、mic 电平、模式图标)。
+- **R4 图形化界面**:主菜单改图标卡片式(左右选卡),主页不显示底部按键提示;`Setup` 更名为 `Setting`;状态栏图形化(键盘模式图标/WiFi 信号格/连接点/电池);WiFi 列表用信号强度图标代替 RSSI 数字。
 - **R5 音频→Typeless 搁置**:Typeless 只认真实硬件麦克风(实测其列表过滤虚拟声卡,BlackHole 不出现)。WiFi→BlackHole 链路保留(通用场景可用)。未来方向:UAC USB 麦克风(有线),或第二块 ESP32-S3 做 USB dongle 接收器(无线,仿 DJI 架构)。用户暂用 DJI Mic。
+
+### 3.6 Codex 宠物页定稿(2026-07-15)
+
+- 240×135 屏幕分为:20px 顶栏、90px 宠物 HUD、25px 当前任务状态。
+- 顶栏左侧仅键盘与 WiFi 图标，右侧仅电池图标；项目名/会话标题放在中间。实际像素宽度超出 144px 才循环滚动，未超出时静态居中。
+- 90px HUD 为横向三列:左侧周限额 HP、中央 72×72 宠物、右侧 5h 限额 MP。两个限额条与宠物同处一行，不额外占用底部文字行；没有 5h 数据时显示灰色 `MP 5H --`。
+- 底部 25px 仅显示当前会话的短状态说明。键盘透传开启后页面与动画继续刷新，但设备按键全部发往 Mac。
+- 官方桌面宠物 v2 图集(1536×2288、8×11)在构建期由 `tools/pack_pet.py` 适配为 72×72、共享 16 色、逐行 RLE 的 Flash 资源；设备运行时不解码 PNG/WebP，也不创建第二张全屏 Canvas。
 
 ## 4. 里程碑与验收标准
 
 | # | 内容 | 验收(由 Claude 实机执行) |
 |---|------|--------------------------|
-| M1 | WiFi 扫描/密码输入/NVS 多网络管理 + mDNS 发现 + 6位码配对 + 状态栏 | 设备扫到家里 WiFi 并连接;与 Mac 桥接完成配对;屏幕显示"已连接 <Mac名>";重启后全自动重连 |
+| M1 | WiFi 扫描/密码输入/NVS 多网络管理 + mDNS 发现 + 6位码配对 + 状态栏 | 设备扫到家里 WiFi 并连接;与 Mac 桥接完成配对;WiFi/电池/键盘图标正确;重启后全自动重连 |
 | M2 | 键盘透传 + F13 专用键 | 在 Mac 文本框用 Cardputer 打出一段含大小写/数字/标点的英文;修饰键组合(Cmd+C 等)生效;按住专用键 Typeless 开始录音、松开停止 |
 | M3 | 麦克风持续推流 → BlackHole | QuickTime 选 BlackHole 能录到清晰人声;Typeless 选 BlackHole 后按住热键说话出正确文字;屏幕电平表工作 |
 | M4 | 打磨 | 断 WiFi/关桥接/Mac 睡眠后 30s 内自愈重连;静音键生效;多 Mac 列表管理可用;熄屏省电可配置 |
+| M5 | Codex 会话宠物 | 最近操作会话自动跟随;左右切换最多8会话;状态动画/任务短文/周限额正确;无5h数据安全降级;长标题滚动;Hook需用户显式信任 |
 
 ## 5. 硬件事实(已实测,勿再踩坑)
 
 - 板:Cardputer ADV(Stamp-S3A,ESP32-S3FN8)。**无 PSRAM**——`qio_qspi`/`qio_opi` 均实测 PSRAM ID 读 0x00000000,官方规格表也无 PSRAM;网上"8MB PSRAM"文章是错的。**RAM 预算 = 512KB SRAM(实测可用堆约 356KB),禁止使用 ps_malloc/PSRAM 相关 API**。音频等缓冲必须小而流式(20ms 帧 + 几帧环形缓冲即可)。
-- Flash 8MB;当前 app 分区 3.3MB,固件 487KB,空间充足。
+- Flash 8MB;当前 app 分区 3.3MB,Codex 宠物版固件 1,471,966 字节(44.0%),空间充足。
 - 音频:ES8311 codec + 高信噪比 MEMS 麦克风。**M5Unified 0.2.18 已含 ADV 支持**(`board_M5CardputerADV` 自动识别、`_microphone_enabled_cb_cardputer_adv` 等)。用 `M5.Mic`(M5Unified Mic_Class)采集;若实测有坑,库源码里有 ES8311 寄存器序列可参考直驱。
 - 无经典蓝牙(仅 BLE),本项目不用蓝牙。
 - WiFi 仅 2.4GHz。
 
 ## 6. 开发环境与约束
 
-- 项目路径:`/Users/chaos/m5 cardputer`(**路径含空格,所有命令加引号**)。
-- 工具链:PlatformIO 6.1.19 与 esptool 位于 `~/Library/Python/3.10/bin/`(**不在 PATH**,需 `export PATH="$HOME/Library/Python/3.10/bin:$PATH"`)。平台 espressif32@7.0.1,board `m5stack-stamps3`,框架 arduino(core 3.x)。
+- 项目路径以当前 clone 的仓库根目录为准；不要写死用户名或绝对路径，路径含空格时必须加引号。
+- 工具链基线:PlatformIO 6.1.19、espressif32@7.0.1、board `m5stack-stamps3`、Arduino core 3.x。新电脑先确保 `pio` 位于 PATH。
 - 现有 `platformio.ini` 的 `ARDUINO_USB_CDC_ON_BOOT=1` 必须保留(串口日志靠它);**不要添加任何 PSRAM 相关配置**。
 - 依赖:`m5stack/M5Cardputer`(引入 M5Unified/M5GFX)。新增库需在 platformio.ini 的 lib_deps 声明并说明理由。
 - **开发约束(重要)**:
@@ -125,7 +136,7 @@
 ## 8. 目录规划
 
 ```
-/Users/chaos/m5 cardputer/
+m5-cardputer/
 ├── docs/GOAL.md            ← 本文档
 ├── platformio.ini
 ├── src/                    ← 固件(main.cpp 装配 + 各模块)

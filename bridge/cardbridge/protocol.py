@@ -59,7 +59,10 @@ def unpack_audio(token: str, datagram: bytes) -> AudioPacket:
 
 
 def encode_message(message: dict[str, Any]) -> bytes:
-    return (json.dumps(message, separators=(",", ":"), ensure_ascii=True) + "\n").encode("utf-8")
+    # UTF-8 is both what ArduinoJson expects and materially smaller than six
+    # byte ``\\uXXXX`` escapes for CJK session titles on the 4 KiB control
+    # channel.
+    return (json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def decode_message(line: bytes) -> dict[str, Any]:

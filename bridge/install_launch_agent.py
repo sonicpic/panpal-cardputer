@@ -19,15 +19,32 @@ def run_launchctl(*arguments: str) -> None:
     subprocess.run(["launchctl", *arguments], check=False)
 
 
-def install() -> None:
+def install(args: argparse.Namespace) -> None:
     bridge_dir = Path(__file__).resolve().parent
     config_dir = Path.home() / ".cardbridge"
     config_dir.mkdir(parents=True, exist_ok=True)
     path = plist_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    program_arguments = [
+        sys.executable,
+        "-m",
+        "cardbridge",
+        "--audio-device",
+        args.audio_device,
+        "--gain",
+        str(args.gain),
+        "--hook-port",
+        str(args.hook_port),
+    ]
+    if args.verbose:
+        program_arguments.append("-v")
+    if args.no_audio:
+        program_arguments.append("--no-audio")
+    if args.no_codex:
+        program_arguments.append("--no-codex")
     payload = {
         "Label": LABEL,
-        "ProgramArguments": [sys.executable, "-m", "cardbridge"],
+        "ProgramArguments": program_arguments,
         "WorkingDirectory": str(bridge_dir),
         "EnvironmentVariables": {"PYTHONPATH": str(bridge_dir)},
         "RunAtLoad": True,
@@ -56,8 +73,14 @@ def uninstall() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install/uninstall CardBridge LaunchAgent")
     parser.add_argument("action", choices=("install", "uninstall"))
+    parser.add_argument("--audio-device", default="BlackHole 2ch")
+    parser.add_argument("--gain", type=float, default=20.0)
+    parser.add_argument("--hook-port", type=int, default=7790)
+    parser.add_argument("--no-audio", action="store_true")
+    parser.add_argument("--no-codex", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    install() if args.action == "install" else uninstall()
+    install(args) if args.action == "install" else uninstall()
 
 
 if __name__ == "__main__":

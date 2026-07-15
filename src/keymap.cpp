@@ -12,10 +12,11 @@ const char* mapFnKey(uint8_t key, uint8_t typelessFunctionKey) {
                                 ? typelessFunctionKey - 13 : 0;
       return functionKeys[index];
     }
-    case 'i': return "up";
-    case 'j': return "left";
-    case 'k': return "down";
-    case 'l': return "right";
+    // Follow the arrow legends printed on the Cardputer keyboard.
+    case ';': return "up";
+    case ',': return "left";
+    case '.': return "down";
+    case '/': return "right";
     case '`': return "escape";
     case '[': return "home";
     case ']': return "end";
@@ -41,7 +42,6 @@ bool isKeyboardModifier(uint8_t key) {
 const char* mapModifier(uint8_t key) {
   switch (key) {
     case KEY_LEFT_CTRL: return "ctrl";
-    case KEY_LEFT_SHIFT: return "shift";
     case KEY_LEFT_ALT: return "cmd";
     case KEY_OPT: return "alt";
     default: return nullptr;
