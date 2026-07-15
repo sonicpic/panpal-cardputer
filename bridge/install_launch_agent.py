@@ -4,8 +4,10 @@ from __future__ import annotations
 import argparse
 import os
 import plistlib
+import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 LABEL = "local.cardbridge.service"
@@ -17,6 +19,39 @@ def plist_path() -> Path:
 
 def run_launchctl(*arguments: str) -> None:
     subprocess.run(["launchctl", *arguments], check=False)
+
+
+def build_launch_path(
+    path_lookup: Callable[[str], str | None] | None = None,
+    home: Path | None = None,
+) -> str:
+    """Build a deterministic service PATH that can run npm-installed Codex."""
+
+    lookup = path_lookup or shutil.which
+    user_home = home or Path.home()
+    directories: list[Path] = []
+    for command in ("node", "codex"):
+        executable = lookup(command)
+        if executable:
+            directories.append(Path(executable).expanduser().parent)
+    directories.extend(
+        [
+            user_home / ".npm-global" / "bin",
+            user_home / ".local" / "bin",
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            Path("/usr/bin"),
+            Path("/bin"),
+            Path("/usr/sbin"),
+            Path("/sbin"),
+        ]
+    )
+    ordered: list[str] = []
+    for directory in directories:
+        value = str(directory)
+        if value not in ordered:
+            ordered.append(value)
+    return os.pathsep.join(ordered)
 
 
 def install(args: argparse.Namespace) -> None:
@@ -46,7 +81,13 @@ def install(args: argparse.Namespace) -> None:
         "Label": LABEL,
         "ProgramArguments": program_arguments,
         "WorkingDirectory": str(bridge_dir),
-        "EnvironmentVariables": {"PYTHONPATH": str(bridge_dir)},
+        "EnvironmentVariables": {
+            "PYTHONPATH": str(bridge_dir),
+            # launchd does not inherit the interactive shell PATH. The npm
+            # Codex launcher uses `/usr/bin/env node`, so both directories must
+            # be present or the monitor incorrectly falls back to bundled Codex.
+            "PATH": build_launch_path(),
+        },
         "RunAtLoad": True,
         "KeepAlive": True,
         "ProcessType": "Interactive",
