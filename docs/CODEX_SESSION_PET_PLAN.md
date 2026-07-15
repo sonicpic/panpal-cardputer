@@ -118,14 +118,17 @@ Cardputer 沿用这四种语义，另外增加两个设备状态：
 
 ### 5.2 动画状态机
 
-| 状态 | 动作建议 | 帧数 / 帧率 | 播放方式 |
-| --- | --- | --- | --- |
-| Idle | 呼吸、眨眼、偶尔打盹 | 4–6 帧 / 4 fps | 循环 |
-| Running | 敲键盘、尾巴摆动或能量流动 | 6–8 帧 / 8 fps | 循环 |
-| Needs input | 抬头、跳一下、问号或感叹号脉冲 | 4–6 帧 / 6 fps | 循环，视觉最明显 |
-| Ready | 庆祝、星星闪烁 | 6 帧 / 8 fps | 首次完整播放，随后慢循环 |
-| Blocked | 卡住、冒烟或错误符号 | 4 帧 / 3 fps | 慢循环 |
-| Offline | 睡眠、信号断开 | 2–4 帧 / 2 fps | 慢循环 |
+| CardBridge 状态 | 图集动画 | 显示语义 |
+| --- | --- | --- |
+| Idle | Idle | 会话空闲 |
+| Prompt 已提交 / Thinking | Waiting | 正在理解 Prompt、思考，或分析工具返回结果 |
+| Tool running | Running | 工具或命令正在执行，显示抱电脑动画 |
+| Needs input | Waiting | 等待用户，由橙色状态点和文字区分 |
+| Ready | Review | 任务完成、待查看 |
+| Blocked | Failed | 任务失败或阻塞 |
+| Offline | Failed | 链路断开，叠加灰色断线斜杠 |
+
+Working 只区分两个子阶段：`thinking` 使用 Waiting，`tool` 使用 Running。不使用 Jumping、Waving 或左右跑动画。
 
 链路在线时，其他会话的提醒排序采用官方优先级：
 
@@ -145,7 +148,7 @@ Cardputer ADV 无 PSRAM，不在设备运行时解码大 PNG/WebP。构建时把
 
 - 单帧：72×72。
 - 色深：4-bit、16 色共享调色板；必要时个别状态使用独立调色板。
-- 总帧数目标：24–30 帧。
+- 总帧数目标：24–32 帧。
 - 未压缩资源约 62–76KB；RLE 后目标 40–80KB。
 - 宠物资源硬上限：128KB Flash。
 - 额外运行时堆目标：不超过 8KB；不创建第二张全屏 Canvas。
@@ -155,35 +158,35 @@ Cardputer ADV 无 PSRAM，不在设备运行时解码大 PNG/WebP。构建时把
 
 ### 5.4 实际构建链
 
-官方 `hatch-pet` 负责桌面宠物：输入角色参考或生成图，产出所有标准动作，组装并校验 v2 `spritesheet.webp` 与 `pet.json`。CardBridge 自己的 `tools/pack_pet.py` 是第二级适配器：
+CardBridge 的 `tools/pack_pet.py` 同时支持 1536×1872 的 8×9 app 图集，以及 `hatch-pet` 生成的 1536×2288 v2 图集。转换链如下：
 
 ```text
 角色图 / 参考图
   → hatch-pet 生成标准动作
-  → 1536×2288 v2 图集(8列×11行，单格192×208)
-  → tools/pack_pet.py 选取 Idle/Running/Waiting/Ready/Blocked
+  → 1536×1872 app 图集(8×9) 或 1536×2288 v2 图集(8×11)
+  → tools/pack_pet.py 选取 Idle/Failed/Waiting/Running/Review
   → 72×72 + 共享16色 + 逐行RLE
   → src/pet_assets.h/.cpp
   → ESP32 从 Flash 流式绘制到现有 M5Canvas
 ```
 
-仓库自带 `--demo` 模式，离线生成 30 帧 Codex 主题开发宠物，保证没有图像服务时仍可编译和联调。接入正式桌面宠物只需：
+仓库自带 `--demo` 模式，离线生成 32 帧 Codex 主题开发宠物，保证没有图像服务时仍可编译和联调。接入正式桌面宠物只需：
 
 ```sh
 python3 tools/pack_pet.py --pet-dir "$HOME/.codex/pets/<name>" --output-dir src
 ```
 
-当前实测：155,520 字节索引像素压成 53,084 字节 RLE；整包小于 128KB 资源上限。
+当前实测：32 帧、165,888 字节索引像素压成 73,270 字节 RLE；整包小于 128KB 资源上限。
 
 ### 5.5 固件大小实测
 
-当前完成版固件实测 1,471,966 字节，app 分区约 3.34MB；静态 RAM 64,780 字节。资源组成包括：
+当前完成版固件实测 2,457,142 字节，app 分区约 3.34MB；静态 RAM 64,924 字节。资源组成包括：
 
-- 中文字体：约 213KB。
-- 宠物动画：40–128KB。
+- 中文字体文件：约 835KB。
+- 宠物动画 RLE：73,270 字节。
 - 会话模型、协议和页面代码：约 30–80KB。
 
-实际占用为 app 分区 44.0%、链接器 RAM 预算 19.8%，仍有充分余量替换为正式宠物图集。
+实际占用为 app 分区 73.5%、链接器 RAM 预算 19.8%，剩余 885,194 字节 Flash 分区空间。
 
 ## 6. Mac 端架构
 
@@ -217,9 +220,10 @@ Codex Desktop / CLI
 | Hook | 目标状态 |
 | --- | --- |
 | `SessionStart` | 注册/恢复会话 |
-| `UserPromptSubmit` | Running |
+| `UserPromptSubmit` | Running / `thinking` → Waiting |
 | `PermissionRequest` | Needs input |
-| `PostToolUse` | 从批准等待恢复到 Running |
+| `PreToolUse` | Running / `tool` → 抱电脑的 Running |
+| `PostToolUse` | Running / `thinking` → Waiting |
 | `Stop` | Ready，等待 Cardputer 本地确认 |
 
 `waitingOnUserInput` 和系统错误要作为第一个技术 Spike 单独验证：如果桌面端 Hook 能区分，就分别映射 Needs input / Blocked；如果不能，第一版宁可显示保守的 Needs input 或 Ready，不根据提示词文本猜测。
@@ -347,15 +351,15 @@ tools/
 ### S2：宠物资源与固件渲染器（开发宠物完成）
 
 - 已制作可替换的 Codex 主题开发宠物；正式桌面同款母版可后续通过 `hatch-pet` 替换。
-- 已制作五组 Cardputer 动画，并以 Idle 覆盖 Offline 基础帧。
+- 已制作 Idle、Failed、Waiting、Running、Review 五组 Cardputer 动画；Offline 使用 Failed 并叠加灰色断线斜杠。
 - 实现离线转换、RLE 解码和无额外全屏缓冲绘制。
 - 加入中文字体并记录固件增长。
 
-### S3：Codex 页面与联调（脱机完成，实机待验收）
+### S3：Codex 页面与联调（实机完成）
 
 - 已实现单屏宠物 HUD、左右会话切换、未读提醒和断线降级。
-- 已通过固件编译、21 项桥接测试、真实 App Server 限额读取与 Hook UDP 联调。
-- 按仓库分工不在开发阶段烧录；烧录与 30 分钟动画/堆稳定性由实机验收执行。
+- 已通过固件编译、29 项桥接测试、真实 App Server 会话读取与 Hook UDP 联调。
+- Codex 可在连接实机时直接烧录、使用 USB 串口并执行物理验收；已验证 Waiting → Running → Waiting 切换。
 
 ### S4：会话控制二期
 

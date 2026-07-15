@@ -92,7 +92,7 @@
 - 顶栏左侧仅键盘与 WiFi 图标，右侧仅电池图标；项目名/会话标题放在中间。实际像素宽度超出 144px 才循环滚动，未超出时静态居中。
 - 90px HUD 为横向三列:左侧周限额 HP、中央 72×72 宠物、右侧 5h 限额 MP。两个限额条与宠物同处一行，不额外占用底部文字行；没有 5h 数据时显示灰色 `MP 5H --`。
 - 底部 25px 仅显示当前会话的短状态说明。键盘透传开启后页面与动画继续刷新，但设备按键全部发往 Mac。
-- 官方桌面宠物 v2 图集(1536×2288、8×11)在构建期由 `tools/pack_pet.py` 适配为 72×72、共享 16 色、逐行 RLE 的 Flash 资源；设备运行时不解码 PNG/WebP，也不创建第二张全屏 Canvas。
+- 1536×1872、8×9 app 图集和 1536×2288、8×11 v2 图集均可在构建期由 `tools/pack_pet.py` 适配为 72×72、共享 16 色、逐行 RLE 的 Flash 资源；设备运行时不解码 PNG/WebP，也不创建第二张全屏 Canvas。提交 Prompt/思考显示 Waiting，工具执行才显示抱电脑的 Running。
 
 ## 4. 里程碑与验收标准
 
@@ -107,7 +107,7 @@
 ## 5. 硬件事实(已实测,勿再踩坑)
 
 - 板:Cardputer ADV(Stamp-S3A,ESP32-S3FN8)。**无 PSRAM**——`qio_qspi`/`qio_opi` 均实测 PSRAM ID 读 0x00000000,官方规格表也无 PSRAM;网上"8MB PSRAM"文章是错的。**RAM 预算 = 512KB SRAM(实测可用堆约 356KB),禁止使用 ps_malloc/PSRAM 相关 API**。音频等缓冲必须小而流式(20ms 帧 + 几帧环形缓冲即可)。
-- Flash 8MB;当前 app 分区 3.3MB,Codex 宠物版固件 1,471,966 字节(44.0%),空间充足。
+- Flash 8MB;当前 app 分区 3.3MB,Codex 宠物版固件 2,457,142 字节(73.5%),剩余 885,194 字节。
 - 音频:ES8311 codec + 高信噪比 MEMS 麦克风。**M5Unified 0.2.18 已含 ADV 支持**(`board_M5CardputerADV` 自动识别、`_microphone_enabled_cb_cardputer_adv` 等)。用 `M5.Mic`(M5Unified Mic_Class)采集;若实测有坑,库源码里有 ES8311 寄存器序列可参考直驱。
 - 无经典蓝牙(仅 BLE),本项目不用蓝牙。
 - WiFi 仅 2.4GHz。

@@ -334,6 +334,13 @@ AgentStatus parseAgentStatus(const char* value) {
   return AgentStatus::Idle;
 }
 
+AgentPhase parseAgentPhase(const char* value) {
+  if (!value) return AgentPhase::None;
+  if (!strcmp(value, "thinking")) return AgentPhase::Thinking;
+  if (!strcmp(value, "tool")) return AgentPhase::Tool;
+  return AgentPhase::None;
+}
+
 int8_t quotaRemaining(JsonVariantConst window) {
   if (window.isNull() || !window["remaining"].is<int>()) return -1;
   return static_cast<int8_t>(constrain(window["remaining"].as<int>(), 0, 100));
@@ -369,6 +376,12 @@ void PairingManager::parseAgentSnapshot(JsonDocument& document) {
     agent.project = item["project"].as<String>();
     agent.activity = item["activity"] | "Session ready";
     agent.status = parseAgentStatus(item["status"]);
+    agent.phase = parseAgentPhase(item["phase"]);
+    // Older CardBridge services did not send a phase. Treat an unqualified
+    // Running snapshot as thinking instead of falsely showing a live command.
+    if (agent.status == AgentStatus::Running && agent.phase == AgentPhase::None) {
+      agent.phase = AgentPhase::Thinking;
+    }
     agent.unread = item["unread"] | false;
   }
   agentOnline_ = true;

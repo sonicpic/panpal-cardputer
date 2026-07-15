@@ -32,7 +32,7 @@ python3 tools/pack_pet.py \
   --output-dir src
 ```
 
-The adapter validates the 1536×2288, 8×11 v2 atlas, selects the relevant animation rows, scales frames to 72×72, quantizes them to a shared 16-colour palette, and writes row-safe RLE into `src/pet_assets.*`. The Cardputer decodes those runs directly from flash and allocates no per-frame image buffer.
+The adapter accepts both the 1536×1872, 8×9 app atlas and the 1536×2288, 8×11 v2 atlas. It selects only Idle, Failed, Waiting, Running, and Review; scales frames to 72×72; quantizes them to a shared 16-colour palette; and writes row-safe RLE into `src/pet_assets.*`. The Cardputer decodes those runs directly from flash and allocates no per-frame image buffer.
 
 ## Build the Chinese UI font
 

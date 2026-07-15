@@ -50,6 +50,9 @@ class AgentSession:
     title: str = "Codex session"
     project: str = ""
     status: str = "idle"
+    # Running is split into two visual phases without changing its priority:
+    # thinking between hooks, or actively executing a tool.
+    phase: str = ""
     activity: str = "Session ready"
     unread: bool = False
     updated_ms: int = 0
@@ -60,6 +63,7 @@ class AgentSession:
             "title": self.title,
             "project": self.project,
             "status": self.status,
+            "phase": self.phase,
             "activity": self.activity,
             "unread": self.unread,
             "updated_ms": self.updated_ms,
@@ -140,12 +144,14 @@ class AgentStore:
 
         if event_key == "sessionstart":
             session.status = "idle"
+            session.phase = ""
             session.activity = "Session ready"
             session.unread = False
             if not self.focus_id:
                 self.focus_id = session_id
         elif event_key == "userpromptsubmit":
             session.status = "running"
+            session.phase = "thinking"
             session.activity = "Understanding the task..."
             session.unread = False
             self.focus_id = session_id
@@ -155,6 +161,7 @@ class AgentStore:
             self.focus_seq += 1
         elif event_key == "permissionrequest":
             session.status = "needs_input"
+            session.phase = ""
             session.activity = "Waiting for your approval"
             session.unread = True
         elif event_key in {"pretooluse", "posttooluse"}:
@@ -164,18 +171,30 @@ class AgentStore:
             )
             if event_key == "pretooluse" and asks_user:
                 session.status = "needs_input"
+                session.phase = ""
                 session.activity = "Waiting for your answer"
                 session.unread = True
+            elif event_key == "posttooluse":
+                # PostToolUse means the command has returned and Codex is
+                # reasoning over its result. Do not leave the device claiming
+                # that the command is still running.
+                session.status = "running"
+                session.phase = "thinking"
+                session.activity = "Thinking..."
+                session.unread = False
             else:
                 session.status = "running"
+                session.phase = "tool"
                 session.activity = _activity_for_tool(tool_name)
                 session.unread = False
         elif event_key in {"stop", "subagentstop"}:
             session.status = "ready"
+            session.phase = ""
             session.activity = "Task completed"
             session.unread = True
         elif event_key in {"error", "systemerror", "failed"}:
             session.status = "blocked"
+            session.phase = ""
             session.activity = "Task encountered a problem"
             session.unread = True
         else:
@@ -247,6 +266,7 @@ class AgentStore:
         session.unread = False
         if session.status in {"ready", "blocked"}:
             session.status = "idle"
+            session.phase = ""
             session.activity = "Session ready"
         if changed:
             self._changed()

@@ -650,7 +650,9 @@ void DeviceUi::drawCodex() {
     activity = agent->activity;
     switch (agent->status) {
       case AgentStatus::Running:
-        visual = PetVisualState::Running;
+        visual = agent->phase == AgentPhase::Tool
+                     ? PetVisualState::Running
+                     : PetVisualState::Thinking;
         statusColor = kAccent;
         break;
       case AgentStatus::NeedsInput:

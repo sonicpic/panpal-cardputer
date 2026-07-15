@@ -59,12 +59,19 @@ enum class AgentStatus : uint8_t {
   Blocked,
 };
 
+enum class AgentPhase : uint8_t {
+  None,
+  Thinking,
+  Tool,
+};
+
 struct AgentSession {
   String id;
   String title;
   String project;
   String activity;
   AgentStatus status = AgentStatus::Idle;
+  AgentPhase phase = AgentPhase::None;
   bool unread = false;
 };
 

@@ -5,10 +5,11 @@ namespace cardbridge {
 pet_assets::AnimationId PetRenderer::animationFor(PetVisualState state) const {
   switch (state) {
     case PetVisualState::Running: return pet_assets::AnimationId::Running;
+    case PetVisualState::Thinking:
     case PetVisualState::NeedsInput: return pet_assets::AnimationId::Waiting;
-    case PetVisualState::Ready: return pet_assets::AnimationId::Ready;
-    case PetVisualState::Blocked: return pet_assets::AnimationId::Blocked;
+    case PetVisualState::Ready: return pet_assets::AnimationId::Review;
     case PetVisualState::Offline:
+    case PetVisualState::Blocked: return pet_assets::AnimationId::Failed;
     case PetVisualState::Idle: return pet_assets::AnimationId::Idle;
   }
   return pet_assets::AnimationId::Idle;

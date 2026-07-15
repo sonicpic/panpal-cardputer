@@ -17,14 +17,14 @@ Expected results:
 - Python tests cover token persistence, UTF-8 JSON framing/size, audio HMAC rejection, jitter startup, silence loss concealment, six-digit pairing, authenticated/unauthenticated TCP behavior, agent focus/quota state, safe Hook installation, explicit F13 down/up, persisted-token reconnect, and the shipped fake device's UDP sine stream.
 - These checks do not require hardware, but Codex may also upload and use the serial monitor when a device is connected.
 
-Current 2026-07-15 build result: 1,471,966 bytes Flash (44.0% of the app partition) and 64,780 bytes static RAM (19.8% of the 327,680-byte linker budget). The generated 30-frame pet payload is 53,084 RLE bytes.
+Current 2026-07-15 build result: 2,457,142 bytes Flash (73.5% of the app partition) and 64,924 bytes static RAM (19.8% of the 327,680-byte linker budget). The generated 32-frame pet payload is 73,270 RLE bytes.
 
 ## 2026-07-15 physical Codex smoke test
 
-- Uploaded the completed firmware to the connected Cardputer ADV at `/dev/cu.usbmodem1201`.
+- Uploaded the completed firmware to the connected Cardputer ADV at `/dev/cu.usbmodem21201`.
 - Installed CardBridge as a `RunAtLoad`/`KeepAlive` LaunchAgent and confirmed an authenticated TCP connection from the device.
 - The device parsed eight live Codex tasks, selected the current task by its exact session ID, and displayed 33% weekly quota with the unavailable five-hour quota represented as `--`.
-- Installed handlers for six official Hook events, then sent representative event payloads through the local reporter to exercise the visible Running -> Needs input -> Ready transition end to end.
+- Installed handlers for six official Hook events, then sent representative event payloads through the local reporter to exercise Waiting (prompt/thinking) -> Running (tool execution) -> Waiting (post-tool thinking) -> Ready end to end.
 - Automatic Hook delivery still requires the user to explicitly trust the installed command in Codex. macOS Accessibility approval is separately required for keyboard injection from the LaunchAgent; neither permission is bypassed by the installer.
 
 ## Physical M1–M4 acceptance
@@ -36,6 +36,6 @@ Current 2026-07-15 build result: 1,471,966 bytes Flash (44.0% of the app partiti
 5. WiFi UI: confirm scan results use signal icons rather than RSSI numbers. A saved network is forgotten with `Backspace` alone, ESC returns, and password entry preserves lowercase, Shift-uppercase, and shifted symbols.
 6. M3: select BlackHole 2ch in QuickTime and record speech. Typeless validation is currently out of scope because it filters out the BlackHole virtual device.
 7. M4: separately interrupt WiFi, stop/restart CardBridge, and sleep/wake the Mac. Confirm recovery within 30 seconds. Pair a second Mac and confirm selecting one never sends keys/audio to the other. Verify brightness and each screen-off setting.
-8. Codex: install and explicitly trust the CardBridge Hooks, then open two Codex tasks. Submit a prompt in task B and confirm the device follows B; use left/right to view A/B without changing desktop focus. Confirm Running/Needs input/Ready animations, the weekly HP bar, gray `MP 5H --` when no five-hour limit exists, long-title scrolling, and `Enter` clearing only the local reminder.
+8. Codex: install and explicitly trust the CardBridge Hooks, then open two Codex tasks. Submit a prompt in task B and confirm the device follows B; use left/right to view A/B without changing desktop focus. Confirm Waiting while Codex thinks, the laptop-holding Running animation only while a tool executes, Waiting again after the tool returns, Needs input/Ready states, the weekly HP bar, gray `MP 5H --` when no five-hour limit exists, long-title scrolling, and `Enter` clearing only the local reminder.
 
 If microphone quality or timing needs hardware-specific tuning, retain the 320-sample/20 ms queue boundary and adjust only M5.Mic configuration values in `src/audio_tx.cpp`.

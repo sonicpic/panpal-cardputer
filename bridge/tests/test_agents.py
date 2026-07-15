@@ -30,6 +30,7 @@ class AgentStoreTests(unittest.TestCase):
         )
         self.assertEqual(store.focus_id, "session-b")
         self.assertEqual(store.sessions["session-b"].status, "running")
+        self.assertEqual(store.sessions["session-b"].phase, "thinking")
         first_focus_seq = store.focus_seq
         store.apply_hook_event(
             {"event": "UserPromptSubmit", "session_id": "session-b", "timestamp_ms": 1_500}
@@ -112,6 +113,17 @@ class AgentStoreTests(unittest.TestCase):
             }
         )
         self.assertEqual(store.sessions["session-a"].activity, "Editing project files...")
+        self.assertEqual(store.sessions["session-a"].phase, "tool")
+
+        store.apply_hook_event(
+            {
+                "event": "PostToolUse",
+                "session_id": "session-a",
+                "tool_name": "apply_patch",
+            }
+        )
+        self.assertEqual(store.sessions["session-a"].activity, "Thinking...")
+        self.assertEqual(store.sessions["session-a"].phase, "thinking")
 
     def test_request_user_input_is_needs_input_until_tool_returns(self) -> None:
         store = AgentStore()
@@ -125,6 +137,7 @@ class AgentStoreTests(unittest.TestCase):
         event["event"] = "PostToolUse"
         store.apply_hook_event(event)
         self.assertEqual(store.sessions["session-a"].status, "running")
+        self.assertEqual(store.sessions["session-a"].phase, "thinking")
 
     def test_focused_session_is_kept_in_bounded_snapshot(self) -> None:
         store = AgentStore()

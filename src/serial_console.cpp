@@ -27,6 +27,15 @@ const char* agentStatusName(AgentStatus status) {
   return "idle";
 }
 
+const char* agentPhaseName(AgentPhase phase) {
+  switch (phase) {
+    case AgentPhase::None: return "none";
+    case AgentPhase::Thinking: return "thinking";
+    case AgentPhase::Tool: return "tool";
+  }
+  return "none";
+}
+
 }  // namespace
 
 void SerialConsole::tick() {
@@ -95,8 +104,8 @@ void SerialConsole::handle(const String& line) {
         quota.fiveHourRemaining);
     for (size_t i = 0; i < pairing_.agentCount(); ++i) {
       const AgentSession& agent = pairing_.agent(i);
-      Serial.printf("[agents] %u %s unread=%d project=\"%s\" title=\"%s\" activity=\"%s\"\n",
-                    i, agentStatusName(agent.status), agent.unread,
+      Serial.printf("[agents] %u %s/%s unread=%d project=\"%s\" title=\"%s\" activity=\"%s\"\n",
+                    i, agentStatusName(agent.status), agentPhaseName(agent.phase), agent.unread,
                     agent.project.c_str(), agent.title.c_str(),
                     agent.activity.c_str());
     }

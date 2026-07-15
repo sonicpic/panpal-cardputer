@@ -9,6 +9,7 @@ namespace cardbridge {
 enum class PetVisualState : uint8_t {
   Offline,
   Idle,
+  Thinking,
   Running,
   NeedsInput,
   Ready,
