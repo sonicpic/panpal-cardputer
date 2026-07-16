@@ -1,6 +1,6 @@
-# CardBridge Mac service
+# CardBridge Agent development and diagnostics
 
-The bridge advertises `_cardbridge._tcp` over mDNS, pairs Cardputers with a six-digit code, injects authenticated TCP key events with Quartz, writes authenticated UDP microphone audio into **BlackHole 2ch**, and publishes a privacy-trimmed view of local Codex sessions. It is a background service with no application UI.
+The bridge advertises `_cardbridge._tcp` over mDNS, pairs Cardputers with a six-digit code, injects authenticated TCP key events with Quartz, writes authenticated UDP microphone audio into **BlackHole 2ch**, and publishes a privacy-trimmed view of local Codex sessions. Normal users run the bundled Agent through `CardBridge.app`; the Python commands below are for development and diagnostics.
 
 ## 1. Install BlackHole and configure Typeless
 
@@ -33,7 +33,7 @@ cardbridge
 
 At first launch, macOS asks for Accessibility access. If necessary, open **System Settings → Privacy & Security → Accessibility** and enable the Python executable used by this virtual environment, then restart CardBridge. Without this permission audio still works, but CGEvent keyboard injection is blocked.
 
-Select **Settings → Computers → Add new computer** on the Cardputer. The bridge prints a six-digit code and also posts a macOS notification. Enter that code on the device. The generated 32-byte random token is stored with mode `0600` in `~/.cardbridge/config.json`; later boots authenticate and reconnect automatically.
+Select **Settings → Computers → Add new computer** on the Cardputer. The bridge prints a six-digit code and also posts a macOS notification. Enter that code on the device. In the packaged App, the generated 32-byte random token is stored in the macOS Keychain and `~/.cardbridge/config.json` retains only non-secret identity/device metadata. Explicit development configs keep their token in the mode-`0600` test file so isolated simulator runs remain portable.
 
 Useful diagnostic run (no key injection and no sound-device requirement):
 
@@ -41,9 +41,9 @@ Useful diagnostic run (no key injection and no sound-device requirement):
 cardbridge --dry-run --no-audio -v
 ```
 
-## 4. Run as a login service
+## 4. Legacy LaunchAgent (development only)
 
-Run the installer from the activated virtual environment so the LaunchAgent records that exact Python executable:
+`CardBridge.app` uses `SMAppService` and automatically migrates/removes the old item. Only use this legacy installer when deliberately testing the source Agent without the App:
 
 ```sh
 cd /path/to/m5-cardputer/bridge
@@ -61,7 +61,7 @@ python install_launch_agent.py uninstall
 
 Session names/projects come from a separate read-only official Codex App Server in every local authentication mode. ChatGPT OAuth additionally exposes its weekly/5-hour subscription limits; API key and custom-provider modes keep Session Pet active but hide the quota HUD. Real-time state comes from official lifecycle Hooks, reported by a fail-open local script over UDP `127.0.0.1:7790`. No prompt text, transcript, tool arguments, or `auth.json` contents are sent to CardBridge.
 
-Preview the merged user-level hook configuration first:
+The packaged App manages Hooks from Settings and points them at the bundled stable Agent path. For source-only development, preview the merged user-level hook configuration first:
 
 ```sh
 python install_codex_hooks.py show
@@ -81,7 +81,23 @@ python install_codex_hooks.py uninstall
 
 Use `cardbridge --no-codex` to disable both the App Server monitor and local hook receiver, or `--hook-port` to choose another loopback port (set the same `CARDBRIDGE_HOOK_PORT` for the reporter).
 
-## 6. End-to-end simulator
+## 6. Local menu bar status/control API
+
+By default CardBridge creates an owner-only Unix socket at:
+
+```text
+~/Library/Application Support/CardBridge/run/agent.sock
+```
+
+The socket directory uses mode `0700`, the socket uses `0600`, and the server also verifies the connecting process UID. A client must first send one newline-delimited JSON hello:
+
+```json
+{"t":"hello","api":{"major":1,"minor":0}}
+```
+
+It may then request `snapshot_req`, send `subscribe` for live snapshots, or use a `command` named `set_gain`, `unpair`, `install_hooks`, `uninstall_hooks`, `restart`, or `shutdown`. Snapshots expose service, device, audio, Accessibility, and Codex health but never expose pairing tokens. Use `--no-control-socket` to disable this endpoint or `--control-socket PATH` to override it.
+
+## 7. End-to-end simulator
 
 Terminal 1:
 
@@ -108,10 +124,17 @@ cd /path/to/m5-cardputer/bridge
 PYTHONPATH=. python -m unittest discover -s tests -v
 ```
 
+From the repository root, also verify that every generated version constant matches `version.json`:
+
+```sh
+python3 tools/generate_versions.py --check
+```
+
 ## Protocol and recovery behavior
 
-- TCP `7788`: newline-delimited UTF-8 JSON capped at 4096 bytes, five-second ping/pong, disconnect after three misses. Every post-handshake message carries the session token; unknown authenticated message types are ignored for forward compatibility.
+- TCP `7788`: newline-delimited UTF-8 JSON capped at 4096 bytes, five-second ping/pong, disconnect after three misses. The hello negotiates device protocol major/minor and the capability intersection. Missing fields are accepted as legacy v1; an unsupported major receives `upgrade_required`. Every post-handshake message carries the session token; unknown authenticated message types are ignored for forward compatibility.
 - UDP `7789`: network-order `seq(u32) + timestamp_ms(u32) + HMAC8`, followed by exactly 640 bytes of little-endian PCM16 mono audio.
+- Local Unix socket: Agent API v1 newline-delimited JSON for status subscriptions and menu bar commands, limited to the logged-in user.
 - Playback starts at a configurable 100 ms jitter depth. Missing sequences become silence; packets are not retransmitted.
 - Firmware stops microphone capture and UDP sending whenever muted or disconnected. Reconnect uses exponential backoff capped at 30 seconds.
 - A Cardputer maintains exactly one selected Mac control connection, so key and microphone data are never broadcast.

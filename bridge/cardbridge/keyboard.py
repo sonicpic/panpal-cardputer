@@ -59,7 +59,7 @@ class KeyInjector:
             except AttributeError:
                 LOG.error("Accessibility trust API is unavailable in this PyObjC installation")
                 return False
-        if not trusted:
+        if not trusted and prompt:
             LOG.error(
                 "Accessibility permission is required: System Settings > Privacy & Security > Accessibility"
             )

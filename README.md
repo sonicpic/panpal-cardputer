@@ -4,6 +4,22 @@ CardBridge turns an M5Stack Cardputer ADV into a WiFi microphone, keyboard, and 
 
 The authoritative product requirements and acceptance criteria are in [`docs/GOAL.md`](docs/GOAL.md). Mac installation, BlackHole and Typeless setup, simulator use, and service operation are documented in [`bridge/README.md`](bridge/README.md).
 
+## Use the Mac menu bar app
+
+`CardBridge.app` is the normal Mac entry point. It bundles its own signed Bridge Agent, starts bridging immediately, appears only in the menu bar, reconnects paired M5 devices automatically, and does not require Python, a virtual environment, or a terminal.
+
+For a local Apple Silicon build:
+
+```sh
+macos/scripts/build_app.sh
+ditto macos/dist/CardBridge.app /Applications/CardBridge.app
+open /Applications/CardBridge.app
+```
+
+On first launch, enable `CardBridge` in **System Settings → Privacy & Security → Accessibility** for keyboard forwarding. The native App requests this permission before starting its bundled Agent so the correct item is registered. Install BlackHole 2ch for microphone bridging. Existing `~/.cardbridge` identity and pairing data are migrated without re-pairing; pairing secrets move to the macOS Keychain.
+
+The menu shows live M5, protocol, local-network, Accessibility, audio, and Codex health. Settings manages login launch, audio gain, paired devices, Codex Hooks, automatic updates, and redacted diagnostics.
+
 ## Build firmware
 
 ```sh
@@ -14,6 +30,24 @@ pio run
 Install PlatformIO Core first if `pio` is not already on `PATH`.
 
 When hardware is connected, Codex may run `pio run -t upload`, use the USB serial port, and perform physical-device validation. Let PlatformIO auto-detect `/dev/cu.usbmodem*` whenever possible because the port name can change after a reset.
+
+## Release and protocol versions
+
+[`version.json`](version.json) is the single version source for the Mac app, Python agent, firmware, local Agent API, device protocol, configuration schema, and capability list. Regenerate the language-specific constants after changing it:
+
+```sh
+python3 tools/generate_versions.py
+```
+
+CI and local validation should use `python3 tools/generate_versions.py --check` to reject stale generated Python, C++, or Swift constants. A protocol-major mismatch produces an explicit `upgrade_required` response; missing protocol fields remain compatible as legacy protocol v1 during migration.
+
+Run the complete local release gate with:
+
+```sh
+CODE_SIGN_IDENTITY="Apple Development: …" macos/scripts/release.sh
+```
+
+It tests Swift/Python, builds firmware, packages and validates the App/Agent, signs the Sparkle archive, and writes checksums plus release manifests under `macos/dist/release-<version>/`. Public distribution additionally requires a Developer ID Application certificate and Apple Notarization credentials; see [`release/README.md`](release/README.md).
 
 ## Build pet animation assets
 

@@ -4,8 +4,10 @@ import argparse
 import asyncio
 import logging
 import signal
+import sys
 from pathlib import Path
 
+from .control_server import default_control_socket
 from .server import BridgeApp
 
 
@@ -24,6 +26,17 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--record", type=Path, help="also write received PCM to this WAV file (diagnostic)")
     result.add_argument("--no-codex", action="store_true", help="disable Codex session monitoring")
     result.add_argument("--hook-port", type=int, default=7790, help="local-only Codex Hook UDP port")
+    result.add_argument(
+        "--control-socket",
+        type=Path,
+        default=default_control_socket(),
+        help="owner-only local status/control socket for the menu bar app",
+    )
+    result.add_argument(
+        "--no-control-socket",
+        action="store_true",
+        help="disable the local menu bar status/control socket",
+    )
     result.add_argument("-v", "--verbose", action="store_true")
     return result
 
@@ -43,8 +56,8 @@ async def run(args: argparse.Namespace) -> None:
         record_path=args.record,
         enable_agents=not args.no_codex,
         hook_port=args.hook_port,
+        control_socket_path=None if args.no_control_socket else args.control_socket,
     )
-    await app.start()
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
@@ -52,13 +65,27 @@ async def run(args: argparse.Namespace) -> None:
             loop.add_signal_handler(signum, stop.set)
         except NotImplementedError:
             pass
+    started = False
     try:
-        await stop.wait()
+        await app.start()
+        started = True
+        waiters = {
+            asyncio.create_task(stop.wait()),
+            asyncio.create_task(app.shutdown_requested.wait()),
+        }
+        _done, pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
     finally:
-        await app.stop()
+        if started or app.service_state != "stopped":
+            await app.stop()
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--cardbridge-codex-hook"]:
+        from .hook_reporter import main as report_hook
+
+        raise SystemExit(report_hook())
     args = parser().parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,

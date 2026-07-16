@@ -36,6 +36,12 @@ class PairingManager {
   String connectedName() const { return connectedName_; }
   String statusText() const;
   bool pairCodeRequested() const { return state_ == LinkState::AwaitingPairCode; }
+  const String& bridgeVersion() const { return bridgeVersion_; }
+  uint32_t bridgeBuild() const { return bridgeBuild_; }
+  uint8_t bridgeProtocolMajor() const { return bridgeProtocolMajor_; }
+  uint8_t bridgeProtocolMinor() const { return bridgeProtocolMinor_; }
+  const String& compatibilityReason() const { return compatibilityReason_; }
+  const String& requiredFirmware() const { return requiredFirmware_; }
 
   size_t pairedCount() const { return pairedCount_; }
   const PairedMac& paired(size_t index) const { return paired_[index]; }
@@ -61,6 +67,7 @@ class PairingManager {
   bool sendDocument(JsonDocument& document);
   void readIncoming();
   void handleLine(const String& line);
+  void parseBridgeMetadata(JsonDocument& document);
   void parseAgentSnapshot(JsonDocument& document);
   void requestAgentList();
   void connectionLost();
@@ -85,6 +92,12 @@ class PairingManager {
   IPAddress targetIp_;
   uint16_t targetPort_ = kControlPort;
   String connectedName_;
+  String bridgeVersion_;
+  uint32_t bridgeBuild_ = 0;
+  uint8_t bridgeProtocolMajor_ = 0;
+  uint8_t bridgeProtocolMinor_ = 0;
+  String compatibilityReason_;
+  String requiredFirmware_;
 
   AgentSession agents_[kMaxAgentSessions];
   size_t agentCount_ = 0;

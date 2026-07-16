@@ -1,0 +1,37 @@
+{
+  "agent_api": {
+    "major": 1,
+    "minor": 0
+  },
+  "bridge_agent": {
+    "build": 4,
+    "version": "1.0.0"
+  },
+  "capabilities": [
+    "control.keys.v1",
+    "audio.pcm16-16k.v1",
+    "agents.snapshot.v1",
+    "agents.phase.v1",
+    "quota.v1"
+  ],
+  "device_protocol": {
+    "major": 2,
+    "minor": 0
+  },
+  "firmware": {
+    "build": 1,
+    "version": "0.2.0"
+  },
+  "legacy_protocol_1": true,
+  "mac_app": {
+    "architectures": [
+      "arm64"
+    ],
+    "build": 4,
+    "minimum_macos": "13.0",
+    "version": "1.0.0"
+  },
+  "minimum_firmware": "0.1.0",
+  "release": "1.0.0",
+  "schema": 1
+}

@@ -7,3 +7,8 @@ __pycache__/
 .fake_device.json
 bridge/.venv/
 bridge/cardbridge.egg-info/
+macos/.build/
+macos/.deps/
+macos/dist/
+macos/App/icon-work/
+macos/App/CardBridge.icns

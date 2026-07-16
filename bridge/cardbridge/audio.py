@@ -129,7 +129,7 @@ class BlackHoleAudioOutput(NullAudioOutput):
         index, device = candidates[0]
         self.output_rate = float(device["default_samplerate"] or 48_000)
         self._numpy = numpy
-        self._stream = sounddevice.OutputStream(
+        stream = sounddevice.OutputStream(
             device=index,
             samplerate=self.output_rate,
             channels=2,
@@ -137,7 +137,8 @@ class BlackHoleAudioOutput(NullAudioOutput):
             blocksize=0,
             callback=self._callback,
         )
-        self._stream.start()
+        stream.start()
+        self._stream = stream
         print(f"Audio output: {device['name']} at {self.output_rate:.0f} Hz (software resampling enabled)")
 
     def stop(self) -> None:

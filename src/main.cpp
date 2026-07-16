@@ -1,6 +1,7 @@
 #include <M5Cardputer.h>
 
 #include "audio_tx.h"
+#include "generated_version.h"
 #include "key_tx.h"
 #include "pairing.h"
 #include "serial_console.h"
@@ -24,6 +25,9 @@ SerialConsole console(settingsStore, wifi, pairing, audio, ui, settings);
 void printBootInfo() {
   Serial.println();
   Serial.println("CardBridge / Cardputer ADV");
+  Serial.printf("Firmware: %s build %lu, protocol %u.%u\n", kFirmwareVersion,
+                static_cast<unsigned long>(kFirmwareBuild),
+                kDeviceProtocolMajor, kDeviceProtocolMinor);
   Serial.printf("Chip: %s r%d, flash: %u, free heap: %u\n",
                 ESP.getChipModel(), ESP.getChipRevision(),
                 ESP.getFlashChipSize(), ESP.getFreeHeap());

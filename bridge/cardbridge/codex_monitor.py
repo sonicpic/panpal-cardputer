@@ -9,6 +9,8 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from ._generated_version import AGENT_VERSION
+
 from .agents import AgentStore
 
 LOG = logging.getLogger("cardbridge.codex")
@@ -107,7 +109,7 @@ class CodexAppServerClient:
                 "clientInfo": {
                     "name": "cardbridge",
                     "title": "CardBridge Agent Monitor",
-                    "version": "0.1.0",
+                    "version": AGENT_VERSION,
                 }
             },
         )

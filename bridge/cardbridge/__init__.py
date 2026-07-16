@@ -1,3 +1,3 @@
 """CardBridge Mac service."""
 
-__version__ = "0.1.0"
+from ._generated_version import AGENT_VERSION as __version__

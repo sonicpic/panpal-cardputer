@@ -10,6 +10,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cardbridge._generated_version import (
+    CAPABILITIES,
+    DEVICE_PROTOCOL_MAJOR,
+    DEVICE_PROTOCOL_MINOR,
+    FIRMWARE_VERSION,
+)
 from cardbridge.protocol import AUDIO_SAMPLES_PER_FRAME, encode_message, pack_audio
 
 
@@ -50,12 +56,30 @@ class FakeDevice:
     def connect(self, pair_code: str | None = None) -> None:
         self.socket = socket.create_connection((self.host, self.tcp_port), timeout=5)
         self.file = self.socket.makefile("rwb", buffering=0)
-        self.send({"t": "hello", "dev_id": self.device_id, "token": self.token})
+        hello = {
+            "t": "hello",
+            "dev_id": self.device_id,
+            "token": self.token,
+            "device": {
+                "model": "fake-cardputer",
+                "firmware": FIRMWARE_VERSION,
+                "build": "test",
+            },
+            "protocol": {
+                "major": DEVICE_PROTOCOL_MAJOR,
+                "minor": DEVICE_PROTOCOL_MINOR,
+            },
+            "capabilities": list(CAPABILITIES),
+        }
+        self.send(hello)
         response = self.receive()
         if response["t"] == "auth_error":
             self.token = None
-            self.send({"t": "hello", "dev_id": self.device_id, "token": None})
+            hello["token"] = None
+            self.send(hello)
             response = self.receive()
+        if response["t"] == "upgrade_required":
+            raise RuntimeError(f"firmware update required: {response}")
         if response["t"] == "pair_required":
             if pair_code is None:
                 pair_code = input("Pairing code shown by CardBridge: ").strip()

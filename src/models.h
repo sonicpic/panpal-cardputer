@@ -46,6 +46,7 @@ enum class LinkState : uint8_t {
   AwaitingPairCode,
   Authenticating,
   Connected,
+  Incompatible,
 };
 
 constexpr size_t kMaxAgentSessions = 8;

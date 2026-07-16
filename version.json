@@ -1,0 +1,40 @@
+{
+  "release": "1.0.0",
+  "mac_app": {
+    "version": "1.0.0",
+    "build": 4
+  },
+  "bridge_agent": {
+    "version": "1.0.0",
+    "build": 4
+  },
+  "agent_api": {
+    "major": 1,
+    "minor": 0
+  },
+  "firmware": {
+    "version": "0.2.0",
+    "build": 1
+  },
+  "device_protocol": {
+    "major": 2,
+    "minor": 0
+  },
+  "config_schema": 2,
+  "compatibility": {
+    "min_firmware": "0.1.0",
+    "legacy_protocol_1": true
+  },
+  "updates": {
+    "sparkle_version": "2.9.4",
+    "feed_url": "https://raw.githubusercontent.com/voltwake/m5-cardputer/main/release/appcast.xml",
+    "public_ed_key": "d3fvdw4bGTCUoKuACWMwrQ2ZAF6VgyvaPBdw+U5iwkQ="
+  },
+  "capabilities": [
+    "control.keys.v1",
+    "audio.pcm16-16k.v1",
+    "agents.snapshot.v1",
+    "agents.phase.v1",
+    "quota.v1"
+  ]
+}

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cardbridge"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Mac bridge for the M5Stack Cardputer ADV wireless microphone and keyboard"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
   "zeroconf>=0.131",
   "pyobjc-framework-ApplicationServices>=10.0; sys_platform == 'darwin'",
   "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
+  "pyobjc-framework-Security>=10.0; sys_platform == 'darwin'",
 ]
 
 [project.scripts]
@@ -20,6 +21,9 @@ cardbridge = "cardbridge.__main__:main"
 
 [tool.setuptools]
 py-modules = ["fake_device"]
+
+[tool.setuptools.dynamic]
+version = {attr = "cardbridge.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]

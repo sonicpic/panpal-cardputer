@@ -22,7 +22,8 @@ void WifiManager::tick() {
 
   // The boot-time scan can run before the STA interface is fully up and come
   // back empty. Keep retrying while we have never seen a network.
-  if (!pendingScan_ && !scanEverSucceeded_ &&
+  if (!pendingScan_ && !scanEverSucceeded_ && !connected() &&
+      connectStartedMs_ == 0 &&
       millis() - lastScanStartMs_ >= 4000) {
     startScan();
   }

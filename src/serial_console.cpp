@@ -1,5 +1,7 @@
 #include "serial_console.h"
 
+#include "generated_version.h"
+
 namespace cardbridge {
 namespace {
 
@@ -11,6 +13,7 @@ const char* linkStateName(LinkState state) {
     case LinkState::AwaitingPairCode: return "awaiting_pair_code";
     case LinkState::Authenticating: return "authenticating";
     case LinkState::Connected: return "connected";
+    case LinkState::Incompatible: return "incompatible";
   }
   return "offline";
 }
@@ -227,13 +230,19 @@ void SerialConsole::printStatus() {
                 M5Cardputer.BtnA.isPressed());
   Serial.printf(
       "[status] wifi=%d ssid=\"%s\" ip=%s rssi=%d link=%s mac=\"%s\" "
-      "paired=%u muted=%d level=%u dropped=%u heap=%u\n",
+      "paired=%u muted=%d level=%u dropped=%u heap=%u fw=%s/%lu proto=%u.%u "
+      "bridge=%s/%lu bridge_proto=%u.%u incompat=\"%s\" required_fw=%s\n",
       wifi_.connected(), wifi_.currentSsid().c_str(),
       wifi_.localIp().toString().c_str(), wifi_.rssi(),
       linkStateName(pairing_.state()),
       pairing_.connectedName().c_str(), pairing_.pairedCount(),
       audio_.muted(), audio_.level(), audio_.droppedFrames(),
-      ESP.getFreeHeap());
+      ESP.getFreeHeap(), kFirmwareVersion,
+      static_cast<unsigned long>(kFirmwareBuild), kDeviceProtocolMajor,
+      kDeviceProtocolMinor, pairing_.bridgeVersion().c_str(),
+      static_cast<unsigned long>(pairing_.bridgeBuild()),
+      pairing_.bridgeProtocolMajor(), pairing_.bridgeProtocolMinor(),
+      pairing_.compatibilityReason().c_str(), pairing_.requiredFirmware().c_str());
 }
 
 void SerialConsole::printComputers() {

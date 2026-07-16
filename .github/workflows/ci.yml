@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install build tools
+        run: |
+          python -m pip install platformio
+          macos/scripts/bootstrap_build_env.sh
+      - name: Check generated versions
+        run: python3 tools/generate_versions.py --check
+      - name: Python tests
+        run: PYTHONPATH=bridge:. bridge/.venv/bin/python -m unittest discover -s bridge/tests -v
+      - name: Swift tests
+        run: swift test --package-path macos
+      - name: Firmware build
+        run: pio run
+      - name: Package app and Agent
+        run: macos/scripts/build_app.sh
+      - name: Validate package
+        run: python3 tools/validate_release.py --app macos/dist/CardBridge.app

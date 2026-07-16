@@ -1,0 +1,91 @@
+import AppKit
+import SwiftUI
+
+final class CardBridgeAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        LoginItemManager.registerDefaultIfNeeded()
+        AccessibilityPermission.requestIfNeeded()
+        AgentSupervisor.shared.start()
+        UpdaterController.shared.start()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        AgentSupervisor.shared.stop()
+    }
+}
+
+@main
+struct CardBridgeMenuBarApp: App {
+    @NSApplicationDelegateAdaptor(CardBridgeAppDelegate.self) private var appDelegate
+    @StateObject private var client = AgentClient()
+
+    var body: some Scene {
+        MenuBarExtra {
+            BridgeMenuView(client: client)
+                .onAppear { client.start() }
+        } label: {
+            MenuBarStatusLabel(client: client)
+                .onAppear { client.start() }
+        }
+        .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(client: client)
+        }
+    }
+}
+
+enum MenuBarStatusSymbols {
+    static let ready = "rectangle.connected.to.line.below"
+    static let connected = "link.circle.fill"
+    static let connecting = "arrow.triangle.2.circlepath"
+    static let warning = "exclamationmark.triangle"
+    static let stopped = "rectangle.slash"
+
+    static let all = [ready, connected, connecting, warning, stopped]
+}
+
+private struct MenuBarStatusLabel: View {
+    @ObservedObject var client: AgentClient
+
+    private var symbol: String {
+        switch client.connectionState {
+        case .connected:
+            return client.snapshot.devices.isEmpty
+                ? MenuBarStatusSymbols.ready
+                : MenuBarStatusSymbols.connected
+        case .connecting:
+            return MenuBarStatusSymbols.connecting
+        case .incompatible, .failed:
+            return MenuBarStatusSymbols.warning
+        case .stopped:
+            return MenuBarStatusSymbols.stopped
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+            Text("CardBridge")
+                .lineLimit(1)
+        }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("CardBridge")
+            .accessibilityValue(Text(accessibilityStatus))
+    }
+
+    private var accessibilityStatus: String {
+        switch client.connectionState {
+        case .connected:
+            return client.snapshot.devices.isEmpty
+                ? L10n.text("桥接器已就绪")
+                : L10n.text("M5 已连接")
+        case .connecting:
+            return L10n.text("正在连接桥接器…")
+        case let .incompatible(message), let .failed(message):
+            return message
+        case .stopped:
+            return L10n.text("桥接器未启动")
+        }
+    }
+}

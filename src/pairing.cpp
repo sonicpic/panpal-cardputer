@@ -1,5 +1,7 @@
 #include "pairing.h"
 
+#include "generated_version.h"
+
 namespace cardbridge {
 
 void PairingManager::begin(DeviceSettings* settings) {
@@ -114,6 +116,8 @@ bool PairingManager::connectToDiscovered(size_t index) {
   targetToken_ = pairedIndex >= 0 ? paired_[pairedIndex].token : String();
   nextConnectMs_ = 0;
   reconnectDelayMs_ = kReconnectMinMs;
+  compatibilityReason_.clear();
+  requiredFirmware_.clear();
   return true;
 }
 
@@ -149,13 +153,24 @@ void PairingManager::attemptConnection() {
 void PairingManager::sendHello() {
   const int index = pairedIndexById(targetId_);
   targetToken_ = index >= 0 ? paired_[index].token : String();
-  StaticJsonDocument<256> hello;
+  StaticJsonDocument<768> hello;
   hello["t"] = "hello";
   hello["dev_id"] = deviceId_;
   if (targetToken_.isEmpty()) {
     hello["token"] = nullptr;
   } else {
     hello["token"] = targetToken_;
+  }
+  JsonObject device = hello.createNestedObject("device");
+  device["model"] = "cardputer-adv";
+  device["firmware"] = kFirmwareVersion;
+  device["build"] = kFirmwareBuild;
+  JsonObject protocol = hello.createNestedObject("protocol");
+  protocol["major"] = kDeviceProtocolMajor;
+  protocol["minor"] = kDeviceProtocolMinor;
+  JsonArray capabilities = hello.createNestedArray("capabilities");
+  for (size_t i = 0; i < kDeviceCapabilityCount; ++i) {
+    capabilities.add(kDeviceCapabilities[i]);
   }
   if (!sendDocument(hello)) {
     connectionLost();
@@ -252,7 +267,22 @@ void PairingManager::handleLine(const String& line) {
     sendDocument(pong);
     return;
   }
+  if (type == "upgrade_required") {
+    compatibilityReason_ = incomingDocument_["reason"] | "version_mismatch";
+    requiredFirmware_ = incomingDocument_["required"]["min_firmware"] | "";
+    parseBridgeMetadata(incomingDocument_);
+    client_.stop();
+    incoming_.clear();
+    connectedName_ = targetName_;
+    state_ = LinkState::Incompatible;
+    agentOnline_ = false;
+    setAudioReady(false);
+    manualDisconnect_ = true;
+    missedPongs_ = 0;
+    return;
+  }
   if (type == "pair_required") {
+    parseBridgeMetadata(incomingDocument_);
     targetName_ = incomingDocument_["mac_name"] | targetName_;
     connectedName_ = targetName_;
     state_ = LinkState::AwaitingPairCode;
@@ -263,6 +293,7 @@ void PairingManager::handleLine(const String& line) {
     return;
   }
   if (type == "paired") {
+    parseBridgeMetadata(incomingDocument_);
     const String token = incomingDocument_["token"].as<String>();
     if (token.length() < 64) {
       connectionLost();
@@ -293,6 +324,7 @@ void PairingManager::handleLine(const String& line) {
     return;
   }
   if (type == "hello_ok") {
+    parseBridgeMetadata(incomingDocument_);
     connectedName_ = incomingDocument_["mac_name"] | targetName_;
     state_ = LinkState::Connected;
     setAudioReady(true);
@@ -320,6 +352,21 @@ void PairingManager::handleLine(const String& line) {
     return;
   }
   // Every future/unknown type is deliberately ignored.
+}
+
+void PairingManager::parseBridgeMetadata(JsonDocument& document) {
+  JsonVariantConst app = document["app"];
+  bridgeVersion_ = app["version"] | "";
+  bridgeBuild_ = app["build"] | 0U;
+  JsonVariantConst protocol = document["protocol"];
+  if (protocol.isNull()) {
+    // A bridge without explicit protocol metadata is the shipped legacy v1.
+    bridgeProtocolMajor_ = 1;
+    bridgeProtocolMinor_ = 0;
+  } else {
+    bridgeProtocolMajor_ = protocol["major"] | 0;
+    bridgeProtocolMinor_ = protocol["minor"] | 0;
+  }
 }
 
 namespace {
@@ -403,6 +450,8 @@ void PairingManager::disconnect(bool manual) {
   setAudioReady(false);
   manualDisconnect_ = manual;
   missedPongs_ = 0;
+  compatibilityReason_.clear();
+  requiredFirmware_.clear();
   if (manual) {
     targetId_.clear();
     targetToken_.clear();
@@ -479,6 +528,7 @@ String PairingManager::statusText() const {
     case LinkState::AwaitingPairCode: return "Enter pair code";
     case LinkState::Authenticating: return "Authenticating...";
     case LinkState::Connected: return String("Connected ") + connectedName_;
+    case LinkState::Incompatible: return "Update required";
   }
   return "Mac offline";
 }
