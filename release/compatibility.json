@@ -4,7 +4,7 @@
     "minor": 0
   },
   "bridge_agent": {
-    "build": 4,
+    "build": 6,
     "version": "1.0.0"
   },
   "capabilities": [
@@ -19,7 +19,7 @@
     "minor": 0
   },
   "firmware": {
-    "build": 1,
+    "build": 7,
     "version": "0.2.0"
   },
   "legacy_protocol_1": true,
@@ -27,7 +27,7 @@
     "architectures": [
       "arm64"
     ],
-    "build": 4,
+    "build": 6,
     "minimum_macos": "13.0",
     "version": "1.0.0"
   },

@@ -62,7 +62,12 @@ def encode_message(message: dict[str, Any]) -> bytes:
     # UTF-8 is both what ArduinoJson expects and materially smaller than six
     # byte ``\\uXXXX`` escapes for CJK session titles on the 4 KiB control
     # channel.
-    return (json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+    encoded = (
+        json.dumps(message, separators=(",", ":"), ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    if len(encoded) > MAX_JSON_LINE:
+        raise ProtocolError("JSON line is too large")
+    return encoded
 
 
 def decode_message(line: bytes) -> dict[str, Any]:

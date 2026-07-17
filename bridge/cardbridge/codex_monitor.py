@@ -11,10 +11,21 @@ from typing import Any
 
 from ._generated_version import AGENT_VERSION
 
-from .agents import AgentStore
+from .agents import AGENT_LIMIT, AgentStore
 
 LOG = logging.getLogger("cardbridge.codex")
 APP_SERVER_STREAM_LIMIT = 4 * 1024 * 1024
+THREAD_REFRESH_SECONDS = 2
+ACCOUNT_REFRESH_SECONDS = 30
+_API_AUTH_MODES = frozenset(
+    {
+        "apikey",
+        "headers",
+        "agentIdentity",
+        "personalAccessToken",
+        "bedrockApiKey",
+    }
+)
 
 
 def find_codex_candidates(
@@ -65,12 +76,24 @@ def find_codex() -> str | None:
 def quota_available_from_account(result: dict[str, Any]) -> bool:
     """ChatGPT subscription windows apply only to active ChatGPT auth."""
 
+    return quota_mode_from_account(result) == "subscription"
+
+
+def quota_mode_from_account(result: dict[str, Any]) -> str:
+    """Classify ChatGPT windows, API/custom providers, and unknown state."""
+
     account = result.get("account")
-    return (
+    if (
         result.get("requiresOpenaiAuth") is True
         and isinstance(account, dict)
         and account.get("type") == "chatgpt"
-    )
+    ):
+        return "subscription"
+    if result.get("requiresOpenaiAuth") is False:
+        return "api"
+    if isinstance(account, dict) and account.get("type") in {"apiKey", "amazonBedrock"}:
+        return "api"
+    return "unknown"
 
 
 class CodexAppServerClient:
@@ -203,6 +226,8 @@ class CodexMonitor:
         self.client: CodexAppServerClient | None = None
         self.task: asyncio.Task[None] | None = None
         self._stopping = False
+        self._message_buffers: dict[tuple[str, str], str] = {}
+        self._message_published_at: dict[tuple[str, str], float] = {}
 
     async def start(self) -> None:
         if not self.executables:
@@ -225,12 +250,16 @@ class CodexMonitor:
             self.client = None
 
     async def refresh(self) -> None:
+        await self.refresh_threads()
+        await self.refresh_account()
+
+    async def refresh_threads(self) -> None:
         if self.client is None:
             return
         threads = await self.client.request(
             "thread/list",
             {
-                "limit": 32,
+                "limit": AGENT_LIMIT,
                 "sortKey": "updated_at",
                 "sortDirection": "desc",
                 "useStateDbOnly": True,
@@ -240,6 +269,9 @@ class CodexMonitor:
         if isinstance(data, list):
             self.store.update_threads([item for item in data if isinstance(item, dict)])
 
+    async def refresh_account(self) -> None:
+        if self.client is None:
+            return
         # Session history is local and remains useful in API/custom-provider
         # mode. Subscription quota is a separate, optional ChatGPT-only view.
         try:
@@ -248,12 +280,12 @@ class CodexMonitor:
             )
         except Exception as exc:
             LOG.debug("Codex account mode unavailable: %s", exc)
-            self.store.set_quota_available(False)
+            self.store.set_quota_mode("unknown")
             return
 
-        quota_available = quota_available_from_account(account)
-        self.store.set_quota_available(quota_available)
-        if not quota_available:
+        quota_mode = quota_mode_from_account(account)
+        self.store.set_quota_mode(quota_mode)
+        if quota_mode != "subscription":
             return
 
         try:
@@ -261,6 +293,7 @@ class CodexMonitor:
         except Exception as exc:
             # A quota endpoint failure must never take Session Pet offline.
             LOG.debug("Codex rate limits unavailable: %s", exc)
+            self.store.clear_rate_limits()
             return
         self.store.update_rate_limits(limits)
 
@@ -278,9 +311,16 @@ class CodexMonitor:
                     # initialize and then exits on the first real request.
                     await self.refresh()
                     LOG.info("Codex agent monitor connected via %s", executable)
+                    next_account_refresh = (
+                        asyncio.get_running_loop().time() + ACCOUNT_REFRESH_SECONDS
+                    )
                     while not self._stopping:
-                        await asyncio.sleep(30)
-                        await self.refresh()
+                        await asyncio.sleep(THREAD_REFRESH_SECONDS)
+                        await self.refresh_threads()
+                        now = asyncio.get_running_loop().time()
+                        if now >= next_account_refresh:
+                            await self.refresh_account()
+                            next_account_refresh = now + ACCOUNT_REFRESH_SECONDS
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -298,12 +338,54 @@ class CodexMonitor:
             if self.store.quota_available and isinstance(rate_limits, dict):
                 self.store.update_rate_limits({"rateLimits": rate_limits})
         elif method == "account/updated":
-            # A non-ChatGPT login can be hidden immediately. ChatGPT is only
-            # enabled after account/read also confirms the active provider
-            # requires OpenAI auth, avoiding stale cached-account metadata.
+            # Only known API/custom-provider modes may show Unlimited
+            # immediately. ChatGPT token modes, null, and future enum values
+            # stay Unknown until account/read confirms their quota semantics.
             auth_mode = params.get("authMode")
-            if isinstance(auth_mode, str) and auth_mode != "chatgpt":
-                self.store.set_quota_available(False)
+            self.store.set_quota_mode(
+                "api" if auth_mode in _API_AUTH_MODES else "unknown"
+            )
+            if isinstance(auth_mode, str):
+                # Do not await a request from inside the reader callback: the
+                # same reader must resolve it. Refresh in a separate task.
+                asyncio.create_task(self.refresh())
+        elif method == "item/agentMessage/delta":
+            thread_id = params.get("threadId")
+            item_id = params.get("itemId")
+            delta = params.get("delta")
+            if not all(isinstance(value, str) for value in (thread_id, item_id, delta)):
+                return
+            key = (thread_id, item_id)
+            combined = (self._message_buffers.get(key, "") + delta)[-2048:]
+            self._message_buffers[key] = combined
+            now = asyncio.get_running_loop().time()
+            last = self._message_published_at.get(key, 0.0)
+            if len(combined) >= 16 and now - last >= 0.5:
+                self.store.apply_public_activity(thread_id, combined, phase="thinking")
+                self._message_published_at[key] = now
+        elif method in {
+            "turn/started",
+            "turn/completed",
+            "item/started",
+            "item/completed",
+            "item/mcpToolCall/progress",
+            "thread/name/updated",
+        }:
+            self.store.apply_app_event(method, params)
+            if method == "item/completed":
+                thread_id = params.get("threadId")
+                item = params.get("item")
+                item_id = item.get("id") if isinstance(item, dict) else None
+                if isinstance(thread_id, str) and isinstance(item_id, str):
+                    key = (thread_id, item_id)
+                    self._message_buffers.pop(key, None)
+                    self._message_published_at.pop(key, None)
+            elif method == "turn/completed":
+                thread_id = params.get("threadId")
+                if isinstance(thread_id, str):
+                    for key in [key for key in self._message_buffers if key[0] == thread_id]:
+                        self._message_buffers.pop(key, None)
+                        self._message_published_at.pop(key, None)
 
 
 class CodexHookProtocol(asyncio.DatagramProtocol):

@@ -1,6 +1,6 @@
 # CardBridge for Cardputer ADV
 
-CardBridge turns an M5Stack Cardputer ADV into a WiFi microphone, keyboard, and Codex session companion for macOS. The firmware streams authenticated 16 kHz PCM audio and explicit key down/up events to the companion service in `bridge/`; its Codex page shows the latest user-focused task, animated state, and up to eight switchable sessions. ChatGPT OAuth also shows weekly/5-hour subscription limits, while API key and custom-provider modes hide that quota HUD. Claude remains a placeholder.
+CardBridge turns an M5Stack Cardputer ADV into a WiFi microphone, keyboard, and Codex session companion for macOS. The firmware streams authenticated 16 kHz PCM audio and explicit key down/up events to the companion service in `bridge/`; its Codex page shows the latest user-focused task, animated state, and up to eight switchable sessions. ChatGPT OAuth shows real weekly/5-hour subscription limits; API key and custom-provider modes show compact animated unlimited bars, while an indeterminate account state remains gray. The device UI is deliberately Codex-only and does not expose an unsupported Claude entry.
 
 The authoritative product requirements and acceptance criteria are in [`docs/GOAL.md`](docs/GOAL.md). Mac installation, BlackHole and Typeless setup, simulator use, and service operation are documented in [`bridge/README.md`](bridge/README.md).
 
@@ -66,11 +66,11 @@ python3 tools/pack_pet.py \
   --output-dir src
 ```
 
-The adapter accepts both the 1536×1872, 8×9 app atlas and the 1536×2288, 8×11 v2 atlas. It selects only Idle, Failed, Waiting, Running, and Review; scales frames to 72×72; quantizes them to a shared 16-colour palette; and writes row-safe RLE into `src/pet_assets.*`. The Cardputer decodes those runs directly from flash and allocates no per-frame image buffer.
+The adapter accepts both the 1536×1872, 8×9 app atlas and the 1536×2288, 8×11 v2 atlas. It selects only Idle, Failed, Waiting, Running, and Review; packs frames at 72×72; quantizes them to a shared 16-colour palette; and writes row-safe RLE into `src/pet_assets.*`. The Cardputer decodes those runs directly from flash, scales them to 100×100 on the Codex detail page, and allocates no per-frame image buffer.
 
 ## Build the Chinese UI font
 
-The generated `assets/fonts/cardbridge-ui-15.bff` embeds a 15px, 4-bit anti-aliased GB2312 font derived from Source Han Sans CN Medium 2.005R. Rebuild it with:
+The generated `assets/fonts/cardbridge-ui-13.bff` embeds a native 13px, 4-bit anti-aliased GB2312 font derived from Source Han Sans CN Medium 2.005R. The native size keeps small-screen glyph advances even; it is not a fractionally scaled 15px face. Rebuild it with:
 
 ```sh
 python3 tools/build_ui_font.py

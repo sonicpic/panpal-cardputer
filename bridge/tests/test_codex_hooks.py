@@ -5,9 +5,39 @@ from pathlib import Path
 import tempfile
 
 from cardbridge.codex_hooks import EVENTS, hooks_installed, transform, update_hooks
+from cardbridge.hook_reporter import _activity_from_hook, _public_message_activity
 
 
 class CodexHookInstallerTests(unittest.TestCase):
+    def test_reporter_derives_details_without_forwarding_sensitive_inputs(self) -> None:
+        patch_activity = _activity_from_hook(
+            {
+                "tool_input": {
+                    "patch": "*** Update File: /private/project/src/ui.cpp\n+API_KEY=do-not-send"
+                }
+            },
+            "apply_patch",
+        )
+        self.assertEqual(patch_activity, "Editing ui.cpp")
+        command_activity = _activity_from_hook(
+            {
+                "tool_input": {
+                    "cmd": "OPENAI_API_KEY=do-not-send pio run -t upload"
+                }
+            },
+            "exec_command",
+        )
+        self.assertEqual(command_activity, "Flashing firmware")
+        self.assertNotIn("do-not-send", command_activity)
+        final_activity = _public_message_activity(
+            "## Completed\nUpdated the layout. API_KEY=do-not-send "
+            "Bearer abcdefghijklmnop sk-abcdefghijklmnop"
+        )
+        self.assertIn("Completed", final_activity)
+        self.assertIn("Updated the layout", final_activity)
+        self.assertNotIn("do-not-send", final_activity)
+        self.assertNotIn("abcdefghijklmnop", final_activity)
+
     def test_install_is_idempotent_and_preserves_other_hooks(self) -> None:
         original = {
             "hooks": {

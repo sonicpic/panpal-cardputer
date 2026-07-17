@@ -16,6 +16,122 @@ constexpr uint16_t kAccentWarm = 0xFD20;   // orange
 constexpr uint16_t kTextDim = 0x8410;
 constexpr uint16_t kGood = 0x07E9;
 constexpr uint16_t kBad = 0xF9E7;
+constexpr int kCodexMargin = 4;
+constexpr int kCodexGap = 4;
+constexpr int kCodexLeftX = kCodexMargin;
+constexpr int kCodexColumnWidth = 114;
+constexpr int kCodexRightX = kCodexLeftX + kCodexColumnWidth + kCodexGap;
+constexpr int kCodexPanelY = 4;
+constexpr int kCodexPanelHeight = 127;
+constexpr int kCodexPetX = 11;
+constexpr int kCodexPetY = 18;
+constexpr int kCodexPetSize = 100;
+constexpr int kCodexKeyboardX = 6;
+constexpr int kCodexKeyboardY = 6;
+constexpr int kCodexSessionBadgeWidth = 24;
+constexpr int kCodexSessionBadgeHeight = 12;
+constexpr int kCodexSessionBadgeX =
+    kCodexLeftX + (kCodexColumnWidth - kCodexSessionBadgeWidth) / 2;
+constexpr int kCodexSessionBadgeY = 6;
+constexpr int kCodexContentX = kCodexRightX + 4;
+constexpr int kCodexContentWidth = kCodexColumnWidth - 8;
+constexpr int kCodexTitleY = 8;
+constexpr int kCodexTitleHeight = 18;
+constexpr int kCodexActivityY = 29;
+constexpr int kCodexActivityHeight = 70;
+constexpr int kCodexActivityLines = 4;
+// This is a native 13px face, not a fractionally scaled 15px font. Native
+// advances avoid per-character rounding that made CJK spacing look cramped.
+// A 17px pitch leaves four real pixels between activity lines.
+constexpr float kCodexActivityTextScale = 1.0f;
+constexpr int kCodexActivityTextPixels = 13;
+constexpr int kCodexActivityTextInsetY = 3;
+constexpr int kCodexActivityLinePitch = 17;
+constexpr int kCodexWeeklyY = 103;
+constexpr int kCodexFiveHourY = 116;
+constexpr int kCodexQuotaRowHeight = 10;
+// Low-saturation rainbow stops. Adjacent stops are interpolated per pixel so
+// API quota bars flow as one calm gradient rather than flashing color blocks.
+constexpr uint16_t kUnlimitedGradient[] = {
+    0xD474, 0xC4DB, 0x8D7C, 0x763A, 0x8655, 0xD60F, 0xDD0F,
+};
+constexpr uint8_t kBrightnessLevels[] = {64, 128, 192, 255};
+constexpr uint16_t kScreenTimeouts[] = {30, 60, 120, 300, 0};
+
+static_assert(kCodexLeftX == kCodexMargin);
+static_assert(kCodexRightX + kCodexColumnWidth + kCodexMargin == kWidth);
+static_assert(kCodexPanelY + kCodexPanelHeight + kCodexMargin == kHeight);
+static_assert(kCodexPetX >= kCodexLeftX &&
+              kCodexPetX + kCodexPetSize <= kCodexLeftX + kCodexColumnWidth);
+static_assert(kCodexPetY >= kCodexPanelY &&
+              kCodexPetY + kCodexPetSize <= kCodexPanelY + kCodexPanelHeight);
+static_assert(kCodexSessionBadgeY + kCodexSessionBadgeHeight <= kCodexPetY);
+static_assert(kCodexContentX + kCodexContentWidth <=
+              kCodexRightX + kCodexColumnWidth);
+static_assert(kCodexTitleY + kCodexTitleHeight <= kCodexActivityY);
+static_assert(kCodexActivityY + kCodexActivityHeight <= kCodexWeeklyY);
+static_assert(kCodexActivityTextInsetY +
+                  (kCodexActivityLines - 1) * kCodexActivityLinePitch +
+                  kCodexActivityTextPixels <=
+              kCodexActivityHeight);
+static_assert(kCodexWeeklyY + kCodexQuotaRowHeight <= kCodexFiveHourY);
+static_assert(kCodexFiveHourY + kCodexQuotaRowHeight <=
+              kCodexPanelY + kCodexPanelHeight);
+
+size_t brightnessLevelIndex(uint8_t value) {
+  for (size_t i = 0; i < sizeof(kBrightnessLevels); ++i) {
+    if (kBrightnessLevels[i] == value) return i;
+  }
+  return 1;
+}
+
+size_t utf8CharacterLength(const String& value, size_t index) {
+  if (index >= value.length()) return 0;
+  const uint8_t lead = static_cast<uint8_t>(value[index]);
+  if ((lead & 0x80) == 0) return 1;
+  const size_t remaining = value.length() - index;
+  if ((lead & 0xE0) == 0xC0) return remaining < 2 ? remaining : 2;
+  if ((lead & 0xF0) == 0xE0) return remaining < 3 ? remaining : 3;
+  if ((lead & 0xF8) == 0xF0) return remaining < 4 ? remaining : 4;
+  return 1;
+}
+
+bool asciiOnly(const String& value) {
+  for (size_t i = 0; i < value.length(); ++i) {
+    if (static_cast<uint8_t>(value[i]) >= 0x80) return false;
+  }
+  return true;
+}
+
+void removeLastUtf8Character(String& value) {
+  if (value.isEmpty()) return;
+  size_t index = value.length() - 1;
+  while (index > 0 &&
+         (static_cast<uint8_t>(value[index]) & 0xC0) == 0x80) {
+    --index;
+  }
+  value.remove(index);
+}
+
+uint16_t blendRgb565(uint16_t from, uint16_t to, uint8_t amount) {
+  const uint16_t inverse = 255 - amount;
+  const uint16_t red = (((from >> 11) & 0x1F) * inverse +
+                        ((to >> 11) & 0x1F) * amount) /
+                       255;
+  const uint16_t green = (((from >> 5) & 0x3F) * inverse +
+                          ((to >> 5) & 0x3F) * amount) /
+                         255;
+  const uint16_t blue = ((from & 0x1F) * inverse + (to & 0x1F) * amount) /
+                        255;
+  return static_cast<uint16_t>((red << 11) | (green << 5) | blue);
+}
+
+size_t screenTimeoutIndex(uint16_t value) {
+  for (size_t i = 0; i < sizeof(kScreenTimeouts) / sizeof(kScreenTimeouts[0]); ++i) {
+    if (kScreenTimeouts[i] == value) return i;
+  }
+  return 1;
+}
 
 }  // namespace
 
@@ -118,14 +234,15 @@ void DeviceUi::tick() {
 
   // A new user prompt moves the pet to that session. Manual left/right
   // selection remains sticky until another prompt changes focus again.
-  if (page_ == Page::Codex &&
+  const bool showingCodex = page_ == Page::Main || page_ == Page::Codex;
+  if (showingCodex &&
       (pairing_.agentFocusId() != lastAgentFocusId_ ||
        pairing_.agentFocusSeq() != lastAgentFocusSeq_)) {
     lastAgentFocusId_ = pairing_.agentFocusId();
     lastAgentFocusSeq_ = pairing_.agentFocusSeq();
     selectedAgentId_ = lastAgentFocusId_;
   }
-  if (page_ == Page::Codex && !selectedAgentId_.isEmpty()) {
+  if (showingCodex && !selectedAgentId_.isEmpty()) {
     bool found = false;
     for (size_t i = 0; i < pairing_.agentCount(); ++i) {
       if (pairing_.agent(i).id == selectedAgentId_) {
@@ -191,30 +308,60 @@ bool DeviceUi::backPressed() const {
 void DeviceUi::handleInput() {
   switch (page_) {
     case Page::Main: handleMain(); break;
-    case Page::ComingSoon: if (backPressed() || enterPressed()) setPage(Page::Main); break;
     case Page::Codex: handleCodex(); break;
-    case Page::Settings: handleSettings(); break;
     case Page::Wifi: handleWifi(); break;
     case Page::WifiPassword: handlePassword(); break;
     case Page::Computers: handleComputers(); break;
     case Page::AddComputer: handleAddComputer(); break;
     case Page::PairCode: handlePairCode(); break;
+    case Page::Brightness: handleBrightness(); break;
+    case Page::ScreenOff: handleScreenOff(); break;
   }
 }
 
 void DeviceUi::handleMain() {
   if (navLeft()) {
-    mainSelection_ = (mainSelection_ + 2) % 3;
+    if (mainSelection_ > 0) {
+      homeSettingSelection_ = mainSelection_ - 1;
+      mainSelection_ = 0;
+    }
   } else if (navRight()) {
-    mainSelection_ = (mainSelection_ + 1) % 3;
-  } else if (enterPressed()) {
+    if (mainSelection_ == 0) mainSelection_ = homeSettingSelection_ + 1;
+  } else if (navUp()) {
     if (mainSelection_ == 0) {
-      comingAssistant_ = mainSelection_;
-      setPage(Page::ComingSoon);
-    } else if (mainSelection_ == 1) {
-      showCodex();
+      homeSettingSelection_ = 3;
     } else {
-      setPage(Page::Settings);
+      homeSettingSelection_ = (mainSelection_ + 2) % 4;
+    }
+    mainSelection_ = homeSettingSelection_ + 1;
+  } else if (navDown()) {
+    if (mainSelection_ == 0) {
+      homeSettingSelection_ = 0;
+    } else {
+      homeSettingSelection_ = mainSelection_ % 4;
+    }
+    mainSelection_ = homeSettingSelection_ + 1;
+  } else if (enterPressed()) {
+    switch (mainSelection_) {
+      case 0:
+        showCodex();
+        break;
+      case 1:
+        listSelection_ = 0;
+        wifi_.startScan();
+        setPage(Page::Wifi);
+        break;
+      case 2:
+        listSelection_ = 0;
+        pairing_.requestDiscovery();
+        setPage(Page::Computers);
+        break;
+      case 3:
+        setPage(Page::Brightness);
+        break;
+      case 4:
+        setPage(Page::ScreenOff);
+        break;
     }
   }
 }
@@ -238,50 +385,6 @@ void DeviceUi::handleCodex() {
   }
 }
 
-void DeviceUi::handleSettings() {
-  // Mic mute and the Typeless hot-key are gone: the WiFi->BlackHole voice
-  // path is a dead end (Typeless only lists real hardware mics), so both were
-  // switches with nothing behind them. They come back with the USB-mic route.
-  constexpr uint8_t itemCount = 4;
-  if (navUp()) {
-    settingsSelection_ = (settingsSelection_ + itemCount - 1) % itemCount;
-  } else if (navDown()) {
-    settingsSelection_ = (settingsSelection_ + 1) % itemCount;
-  } else if (backPressed()) {
-    setPage(Page::Main);
-  } else if (enterPressed()) {
-    switch (settingsSelection_) {
-      case 0:
-        listSelection_ = 0;
-        wifi_.startScan();
-        setPage(Page::Wifi);
-        break;
-      case 1:
-        listSelection_ = 0;
-        pairing_.requestDiscovery();
-        setPage(Page::Computers);
-        break;
-      case 2: {
-        const uint8_t levels[] = {64, 128, 192, 255};
-        size_t index = 0;
-        while (index < 3 && settings_.brightness > levels[index]) ++index;
-        settings_.brightness = levels[(index + 1) % 4];
-        M5Cardputer.Display.setBrightness(settings_.brightness);
-        store_.saveSettings(settings_);
-        break;
-      }
-      case 3: {
-        const uint16_t times[] = {30, 60, 120, 300, 0};
-        size_t index = 0;
-        while (index < 4 && settings_.screenTimeoutSec != times[index]) ++index;
-        settings_.screenTimeoutSec = times[(index + 1) % 5];
-        store_.saveSettings(settings_);
-        break;
-      }
-    }
-  }
-}
-
 void DeviceUi::handleWifi() {
   const size_t count = wifi_.scanCount();
   if (count > 0 && listSelection_ >= count) listSelection_ = count - 1;
@@ -292,7 +395,7 @@ void DeviceUi::handleWifi() {
              wifi_.scanResult(listSelection_).saved) {
     wifi_.forget(wifi_.scanResult(listSelection_).ssid);
   } else if (escapePressed()) {
-    setPage(Page::Settings);
+    setPage(Page::Main);
   } else if (count > 0 && navUp()) {
     listSelection_ = (listSelection_ + count - 1) % count;
   } else if (count > 0 && navDown()) {
@@ -303,7 +406,7 @@ void DeviceUi::handleWifi() {
       for (size_t i = 0; i < wifi_.savedCount(); ++i) {
         if (wifi_.saved(i).ssid == selected.ssid) {
           wifi_.connectSaved(i);
-          setPage(Page::Settings);
+          setPage(Page::Main);
           break;
         }
       }
@@ -313,7 +416,7 @@ void DeviceUi::handleWifi() {
       setPage(Page::WifiPassword);
     } else {
       wifi_.addAndConnect(selected.ssid, "");
-      setPage(Page::Settings);
+      setPage(Page::Main);
     }
   }
 }
@@ -325,7 +428,7 @@ void DeviceUi::handlePassword() {
   } else if (state.enter) {
     wifi_.addAndConnect(pendingSsid_, textEntry_);
     textEntry_.clear();
-    setPage(Page::Settings);
+    setPage(Page::Main);
   } else if (state.del) {
     if (!textEntry_.isEmpty()) textEntry_.remove(textEntry_.length() - 1);
   } else {
@@ -339,7 +442,7 @@ void DeviceUi::handleComputers() {
     pairing_.deletePairing(listSelection_);
     if (listSelection_ >= pairing_.pairedCount() && listSelection_ > 0) --listSelection_;
   } else if (escapePressed()) {
-    setPage(Page::Settings);
+    setPage(Page::Main);
   } else if (navUp()) {
     listSelection_ = (listSelection_ + rows - 1) % rows;
   } else if (navDown()) {
@@ -356,7 +459,7 @@ void DeviceUi::handleComputers() {
       pairing_.requestDiscovery();
       setPage(Page::AddComputer);
     } else {
-      setPage(Page::Settings);
+      setPage(Page::Main);
     }
   }
 }
@@ -389,6 +492,40 @@ void DeviceUi::handlePairCode() {
   } else {
     appendTypedText(textEntry_, 6, true);
   }
+}
+
+void DeviceUi::handleBrightness() {
+  if (backPressed()) {
+    setPage(Page::Main);
+    return;
+  }
+  int direction = 0;
+  if (navLeft() || navDown()) direction = -1;
+  if (navRight() || navUp() || enterPressed()) direction = 1;
+  if (!direction) return;
+  const size_t count = sizeof(kBrightnessLevels);
+  const size_t current = brightnessLevelIndex(settings_.brightness);
+  const size_t next = (current + count + direction) % count;
+  settings_.brightness = kBrightnessLevels[next];
+  M5Cardputer.Display.setBrightness(settings_.brightness);
+  store_.saveSettings(settings_);
+}
+
+void DeviceUi::handleScreenOff() {
+  if (backPressed()) {
+    setPage(Page::Main);
+    return;
+  }
+  int direction = 0;
+  if (navLeft() || navDown()) direction = -1;
+  if (navRight() || navUp() || enterPressed()) direction = 1;
+  if (!direction) return;
+  const size_t count = sizeof(kScreenTimeouts) / sizeof(kScreenTimeouts[0]);
+  const size_t current = screenTimeoutIndex(settings_.screenTimeoutSec);
+  const size_t next = (current + count + direction) % count;
+  settings_.screenTimeoutSec = kScreenTimeouts[next];
+  store_.saveSettings(settings_);
+  noteActivity();
 }
 
 void DeviceUi::appendTypedText(String& destination, size_t maxLength,
@@ -424,17 +561,17 @@ void DeviceUi::updateScreenPower() {
 void DeviceUi::render() {
   if (!canvas_.getBuffer()) return;  // allocation failed — never draw blind
   canvas_.fillSprite(kBackground);
-  drawStatusBar();
+  if (page_ != Page::Codex) drawStatusBar();
   switch (page_) {
     case Page::Main: drawMain(); break;
-    case Page::ComingSoon: drawComingSoon(); break;
     case Page::Codex: drawCodex(); break;
-    case Page::Settings: drawSettings(); break;
     case Page::Wifi: drawWifi(); break;
     case Page::WifiPassword: drawPassword(); break;
     case Page::Computers: drawComputers(); break;
     case Page::AddComputer: drawAddComputer(); break;
     case Page::PairCode: drawPairCode(); break;
+    case Page::Brightness: drawBrightness(); break;
+    case Page::ScreenOff: drawScreenOff(); break;
   }
   // Explicit destination: the sprite's stored parent pointer is unreliable
   // when the canvas member is constructed before M5Cardputer (static-init
@@ -478,7 +615,6 @@ void DeviceUi::drawStatusBar() {
 String DeviceUi::statusBarTitle() const {
   switch (page_) {
     case Page::Main: return "CardBridge";
-    case Page::ComingSoon: return comingAssistant_ == 0 ? "Claude" : "Assistant";
     case Page::Codex: {
       const AgentSession* agent = selectedAgent();
       if (!agent) return "Codex";
@@ -486,12 +622,13 @@ String DeviceUi::statusBarTitle() const {
       if (!agent->project.isEmpty()) return agent->project;
       return "Codex";
     }
-    case Page::Settings: return "Setting";
     case Page::Wifi: return "WiFi";
     case Page::WifiPassword: return "WiFi Password";
     case Page::Computers: return "Computers";
     case Page::AddComputer: return "Add Computer";
     case Page::PairCode: return "Pair Computer";
+    case Page::Brightness: return "Brightness";
+    case Page::ScreenOff: return "Screen off";
   }
   return "CardBridge";
 }
@@ -522,30 +659,175 @@ void DeviceUi::drawScrollingTitle(const String& title) {
   canvas_.setTextFont(1);
 }
 
-void DeviceUi::drawScrollingActivity(const String& activity) {
-  constexpr int x = 18;
-  constexpr int y = 122;
-  constexpr int width = 216;
-  if (activity != marqueeActivity_) {
-    marqueeActivity_ = activity;
-    marqueeActivityStartedMs_ = millis();
+void DeviceUi::drawCodexTitle(const String& title) {
+  if (title != marqueeTitle_) {
+    marqueeTitle_ = title;
+    marqueeStartedMs_ = millis();
   }
   canvas_.setFont(uiFontFace_);
-  canvas_.setTextColor(TFT_WHITE, kPanel);
-  const int textWidth = canvas_.textWidth(activity);
-  canvas_.setClipRect(x, 111, width, 23);
+  canvas_.setTextSize(1.0f);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  const int textWidth = canvas_.textWidth(title);
+  canvas_.setClipRect(kCodexContentX, kCodexTitleY, kCodexContentWidth,
+                      kCodexTitleHeight);
   canvas_.setTextDatum(middle_left);
-  if (textWidth <= width) {
-    canvas_.drawString(activity, x, y);
+  if (textWidth <= kCodexContentWidth) {
+    canvas_.drawString(title, kCodexContentX,
+                       kCodexTitleY + kCodexTitleHeight / 2);
   } else {
-    const uint32_t elapsed = millis() - marqueeActivityStartedMs_;
-    const int travel = textWidth + 24;
-    const int offset = elapsed < 1000 ? 0 : ((elapsed - 1000) / 40) % travel;
-    canvas_.drawString(activity, x - offset, y);
-    canvas_.drawString(activity, x - offset + travel, y);
+    const uint32_t elapsed = millis() - marqueeStartedMs_;
+    const int travel = textWidth + 18;
+    const int offset = elapsed < 1000 ? 0 : ((elapsed - 1000) / 45) % travel;
+    canvas_.drawString(title, kCodexContentX - offset,
+                       kCodexTitleY + kCodexTitleHeight / 2);
+    canvas_.drawString(title, kCodexContentX - offset + travel,
+                       kCodexTitleY + kCodexTitleHeight / 2);
   }
   canvas_.clearClipRect();
   canvas_.setTextDatum(top_left);
+  canvas_.setTextFont(1);
+}
+
+void DeviceUi::drawCodexSessionBadge(size_t index, size_t count) {
+  if (count == 0) return;
+  canvas_.fillRoundRect(kCodexSessionBadgeX, kCodexSessionBadgeY,
+                        kCodexSessionBadgeWidth, kCodexSessionBadgeHeight, 3,
+                        kBackground);
+  canvas_.drawRoundRect(kCodexSessionBadgeX, kCodexSessionBadgeY,
+                        kCodexSessionBadgeWidth, kCodexSessionBadgeHeight, 3,
+                        kTextDim);
+  canvas_.setTextFont(1);
+  canvas_.setTextSize(1);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setTextDatum(middle_center);
+  canvas_.drawString(String(index + 1) + "/" + String(count),
+                     kCodexSessionBadgeX + kCodexSessionBadgeWidth / 2,
+                     kCodexSessionBadgeY + kCodexSessionBadgeHeight / 2);
+  canvas_.setTextDatum(top_left);
+}
+
+String DeviceUi::fitWithEllipsis(String text, int width, bool force) {
+  canvas_.setFont(uiFontFace_);
+  if (!force && canvas_.textWidth(text) <= width) return text;
+  const String suffix = "...";
+  while (!text.isEmpty() && canvas_.textWidth(text + suffix) > width) {
+    removeLastUtf8Character(text);
+  }
+  return text + suffix;
+}
+
+void DeviceUi::prepareCodexActivity(const String& activity) {
+  if (activity == wrappedActivity_) return;
+  wrappedActivity_ = activity;
+  activityLineCount_ = 0;
+  for (String& line : activityLines_) line.clear();
+  canvas_.setFont(uiFontFace_);
+  canvas_.setTextSize(kCodexActivityTextScale);
+
+  bool overflow = false;
+  String current;
+  auto pushLine = [&](const String& line) {
+    if (line.isEmpty()) return true;
+    if (activityLineCount_ >= kCodexActivityLines) {
+      overflow = true;
+      return false;
+    }
+    activityLines_[activityLineCount_++] = line;
+    return true;
+  };
+
+  size_t cursor = 0;
+  while (cursor < activity.length() && !overflow) {
+    while (cursor < activity.length() &&
+           isspace(static_cast<unsigned char>(activity[cursor]))) {
+      ++cursor;
+    }
+    const size_t start = cursor;
+    while (cursor < activity.length() &&
+           !isspace(static_cast<unsigned char>(activity[cursor]))) {
+      ++cursor;
+    }
+    if (start == cursor) continue;
+    const String token = activity.substring(start, cursor);
+    const String candidate = current.isEmpty() ? token : current + " " + token;
+    if (canvas_.textWidth(candidate) <= kCodexContentWidth) {
+      current = candidate;
+      continue;
+    }
+
+    if (!current.isEmpty()) {
+      if (!pushLine(current)) break;
+      current.clear();
+    }
+    if (canvas_.textWidth(token) <= kCodexContentWidth) {
+      current = token;
+      continue;
+    }
+    if (asciiOnly(token)) {
+      if (!pushLine(fitWithEllipsis(token, kCodexContentWidth, false))) break;
+      continue;
+    }
+
+    // Chinese may wrap at character boundaries, but an embedded ASCII run is
+    // kept intact so names such as CardBridge never split letter by letter.
+    String chunk;
+    for (size_t index = 0; index < token.length() && !overflow;) {
+      size_t end = index;
+      if (static_cast<uint8_t>(token[index]) < 0x80) {
+        while (end < token.length() &&
+               static_cast<uint8_t>(token[end]) < 0x80) {
+          ++end;
+        }
+      } else {
+        end += utf8CharacterLength(token, index);
+      }
+      const String segment = token.substring(index, end);
+      if (canvas_.textWidth(segment) > kCodexContentWidth) {
+        if (!chunk.isEmpty() && !pushLine(chunk)) break;
+        chunk.clear();
+        if (!pushLine(fitWithEllipsis(segment, kCodexContentWidth, false))) break;
+        index = end;
+        continue;
+      }
+      const String expanded = chunk + segment;
+      if (!chunk.isEmpty() &&
+          canvas_.textWidth(expanded) > kCodexContentWidth) {
+        if (!pushLine(chunk)) break;
+        chunk = segment;
+      } else {
+        chunk = expanded;
+      }
+      index = end;
+    }
+    current = chunk;
+  }
+
+  if (!overflow && !current.isEmpty()) pushLine(current);
+  if (cursor < activity.length()) overflow = true;
+  if (overflow && activityLineCount_ > 0) {
+    const uint8_t last = activityLineCount_ - 1;
+    activityLines_[last] =
+        fitWithEllipsis(activityLines_[last], kCodexContentWidth, true);
+  }
+  canvas_.setTextSize(1.0f);
+  canvas_.setTextFont(1);
+}
+
+void DeviceUi::drawCodexActivity(const String& activity) {
+  prepareCodexActivity(activity);
+  canvas_.setFont(uiFontFace_);
+  canvas_.setTextSize(kCodexActivityTextScale);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setTextDatum(top_left);
+  canvas_.setClipRect(kCodexContentX, kCodexActivityY, kCodexContentWidth,
+                      kCodexActivityHeight);
+  for (uint8_t line = 0; line < activityLineCount_; ++line) {
+    canvas_.drawString(activityLines_[line], kCodexContentX,
+                       kCodexActivityY + kCodexActivityTextInsetY +
+                           line * kCodexActivityLinePitch);
+  }
+  canvas_.clearClipRect();
+  canvas_.setTextSize(1.0f);
   canvas_.setTextFont(1);
 }
 
@@ -574,43 +856,60 @@ void DeviceUi::drawHint(const String& text) {
 }
 
 void DeviceUi::drawMain() {
-  static const char* names[] = {"Claude", "Codex", "Setting"};
-  static const uint16_t colors[] = {kAccentWarm, kAccent, kTextDim};
-  const int cardWidth = 68, cardHeight = 88, gap = 8;
-  const int totalWidth = 3 * cardWidth + 2 * gap;
-  const int x0 = (kWidth - totalWidth) / 2;
-  const int y0 = 27;
-  for (int i = 0; i < 3; ++i) {
-    const int x = x0 + i * (cardWidth + gap);
-    const bool selected = mainSelection_ == i;
-    canvas_.fillRoundRect(x, y0, cardWidth, cardHeight, 8,
-                          selected ? kPanelSelected : kPanel);
-    if (selected) canvas_.drawRoundRect(x, y0, cardWidth, cardHeight, 8, kAccent);
-    // Icon: filled circle with a bold glyph.
-    canvas_.fillCircle(x + cardWidth / 2, y0 + 26, 16, colors[i]);
-    canvas_.setTextDatum(middle_center);
-    canvas_.setTextSize(2);
-    canvas_.setTextColor(TFT_BLACK, colors[i]);
-    canvas_.drawString(i == 0 ? "C" : i == 1 ? "X" : "*",
-                       x + cardWidth / 2, y0 + 27);
-    canvas_.setTextSize(1);
-    canvas_.setTextColor(selected ? TFT_WHITE : kTextDim,
-                         selected ? kPanelSelected : kPanel);
-    canvas_.drawString(names[i], x + cardWidth / 2, y0 + cardHeight - 14);
-    canvas_.setTextDatum(top_left);
+  constexpr int cardX = 4;
+  constexpr int cardY = 24;
+  constexpr int cardWidth = 108;
+  constexpr int cardHeight = 105;
+  const bool selected = mainSelection_ == 0;
+  const uint16_t background = selected ? kPanelSelected : kPanel;
+  canvas_.fillRoundRect(cardX, cardY, cardWidth, cardHeight, 7, background);
+  if (selected) {
+    canvas_.drawRoundRect(cardX, cardY, cardWidth, cardHeight, 7, kAccent);
   }
+
+  pet_.draw(canvas_, codexVisualState(), 22, 25, millis());
+  canvas_.setTextFont(1);
+  canvas_.setTextSize(1);
+  canvas_.setTextDatum(middle_center);
+  canvas_.setTextColor(selected ? TFT_WHITE : kTextDim, background);
+  canvas_.drawString("Codex", cardX + cardWidth / 2, 104);
+  canvas_.fillCircle(13, 119, 3, codexStatusColor());
+  canvas_.setTextDatum(middle_left);
+  canvas_.drawString(clipped(codexPreviewStatus(), 13), 21, 119);
+  canvas_.setTextDatum(top_left);
+
+  const String wifiValue = wifi_.connected()
+      ? clipped(wifi_.currentSsid(), 8) : String("offline");
+  const String computerValue = pairing_.connected()
+      ? String("online") : String(pairing_.pairedCount());
+  const String timeoutValue = settings_.screenTimeoutSec == 0
+      ? String("Never") : String(settings_.screenTimeoutSec) + "s";
+  drawHomeSettingRow(24, 0, "WiFi", wifiValue);
+  drawHomeSettingRow(51, 1, "Computers", computerValue);
+  drawHomeSettingRow(78, 2, "Brightness", String(settings_.brightness));
+  drawHomeSettingRow(105, 3, "Screen off", timeoutValue);
 }
 
-void DeviceUi::drawComingSoon() {
-  canvas_.setTextDatum(middle_center);
-  canvas_.setTextColor(kAccent, kBackground);
-  canvas_.setTextSize(2);
-  canvas_.drawString(comingAssistant_ == 0 ? "Claude" : "Codex", kWidth / 2, 52);
+void DeviceUi::drawHomeSettingRow(int y, uint8_t index, const String& text,
+                                  const String& value) {
+  constexpr int x = 118;
+  constexpr int width = 118;
+  constexpr int height = 23;
+  const bool selected = mainSelection_ == index + 1;
+  const uint16_t background = selected ? kPanelSelected : kPanel;
+  canvas_.fillRoundRect(x, y, width, height, 5, background);
+  if (selected) canvas_.drawRoundRect(x, y, width, height, 5, kAccent);
+  canvas_.setTextFont(1);
   canvas_.setTextSize(1);
-  canvas_.setTextColor(TFT_WHITE, kBackground);
-  canvas_.drawString("Coming soon", kWidth / 2, 78);
-  canvas_.setTextDatum(top_left);
-  drawHint("Esc/Backspace: back");
+  canvas_.setTextColor(selected ? TFT_WHITE : kTextDim, background);
+  canvas_.setCursor(x + 7, y + 8);
+  canvas_.print(text);
+  if (!value.isEmpty()) {
+    const int valueWidth = canvas_.textWidth(value);
+    canvas_.setTextColor(selected ? TFT_WHITE : kAccent, background);
+    canvas_.setCursor(x + width - valueWidth - 6, y + 8);
+    canvas_.print(value);
+  }
 }
 
 const AgentSession* DeviceUi::selectedAgent() const {
@@ -620,99 +919,154 @@ const AgentSession* DeviceUi::selectedAgent() const {
   return &pairing_.agent(agentSelection_);
 }
 
-void DeviceUi::drawQuotaHud(int x, int remaining, const char* label,
-                            uint16_t color) {
+PetVisualState DeviceUi::codexVisualState() const {
+  if (!pairing_.connected()) return PetVisualState::Offline;
+  const AgentSession* agent = selectedAgent();
+  if (!agent || !pairing_.agentOnline()) return PetVisualState::Idle;
+  switch (agent->status) {
+    case AgentStatus::Running:
+      return agent->phase == AgentPhase::Tool
+          ? PetVisualState::Running : PetVisualState::Thinking;
+    case AgentStatus::NeedsInput: return PetVisualState::NeedsInput;
+    case AgentStatus::Ready: return PetVisualState::Ready;
+    case AgentStatus::Blocked: return PetVisualState::Blocked;
+    case AgentStatus::Offline: return PetVisualState::Offline;
+    case AgentStatus::Idle: return PetVisualState::Idle;
+  }
+  return PetVisualState::Idle;
+}
+
+uint16_t DeviceUi::codexStatusColor() const {
+  switch (codexVisualState()) {
+    case PetVisualState::Running:
+    case PetVisualState::Thinking: return kAccent;
+    case PetVisualState::NeedsInput: return kAccentWarm;
+    case PetVisualState::Ready: return kGood;
+    case PetVisualState::Blocked: return kBad;
+    case PetVisualState::Offline:
+    case PetVisualState::Idle: return kTextDim;
+  }
+  return kTextDim;
+}
+
+String DeviceUi::codexPreviewStatus() const {
+  if (!pairing_.connected()) return "Mac offline";
+  const AgentSession* agent = selectedAgent();
+  if (!pairing_.agentOnline()) return "Waiting";
+  if (!agent) return "No sessions";
+  switch (agent->status) {
+    case AgentStatus::Running:
+      return agent->phase == AgentPhase::Tool ? "Running" : "Thinking";
+    case AgentStatus::NeedsInput: return "Needs input";
+    case AgentStatus::Ready: return "Ready";
+    case AgentStatus::Blocked: return "Blocked";
+    case AgentStatus::Offline: return "Offline";
+    case AgentStatus::Idle: return "Idle";
+  }
+  return "Idle";
+}
+
+void DeviceUi::drawQuotaRow(int y, const char* label, int remaining,
+                            uint16_t color, AgentQuotaMode mode) {
   canvas_.setTextFont(1);
   canvas_.setTextSize(1);
-  canvas_.setTextColor(remaining < 0 ? kTextDim : TFT_WHITE, kBackground);
-  canvas_.setCursor(x, 25);
+  canvas_.setTextColor(mode == AgentQuotaMode::Unknown ? kTextDim : TFT_WHITE,
+                       kPanel);
+  canvas_.setCursor(kCodexContentX, y + 2);
   canvas_.print(label);
-  canvas_.setCursor(x + 38, 25);
-  if (remaining < 0) {
-    canvas_.print("--");
+  constexpr int barX = 164;
+  constexpr int barWidth = 68;
+  constexpr int barHeight = 8;
+  const int barY = y + (kCodexQuotaRowHeight - barHeight) / 2;
+  canvas_.fillRoundRect(barX, barY, barWidth, barHeight, 2, kBackground);
+  if (mode == AgentQuotaMode::Api) {
+    constexpr size_t colorCount =
+        sizeof(kUnlimitedGradient) / sizeof(kUnlimitedGradient[0]);
+    constexpr int stopWidth = 12;
+    constexpr int gradientWidth = colorCount * stopWidth;
+    // One-pixel movement every 120ms gives the full gradient a roughly
+    // ten-second cycle. There is deliberately no sparkle/glint overlay.
+    const int phase = (millis() / 120) % gradientWidth;
+    const int innerWidth = barWidth - 2;
+    for (int column = 0; column < innerWidth; ++column) {
+      const int position = (phase + column) % gradientWidth;
+      const size_t colorIndex = position / stopWidth;
+      const size_t nextColor = (colorIndex + 1) % colorCount;
+      const uint8_t blend = static_cast<uint8_t>(
+          (position % stopWidth) * 255 / stopWidth);
+      const uint16_t color = blendRgb565(kUnlimitedGradient[colorIndex],
+                                         kUnlimitedGradient[nextColor], blend);
+      const uint16_t edge = blendRgb565(kBackground, color, 176);
+      canvas_.drawPixel(barX + 1 + column, barY + 1, edge);
+      canvas_.drawFastVLine(barX + 1 + column, barY + 2, barHeight - 4, color);
+      canvas_.drawPixel(barX + 1 + column, barY + barHeight - 2, edge);
+    }
+    // Draw two complete loops with a dark halo. This remains legible inside
+    // the compact row and cannot be vertically clipped like a font glyph.
+    const int centerX = barX + barWidth / 2;
+    const int centerY = barY + barHeight / 2;
+    canvas_.drawEllipse(centerX - 3, centerY, 5, 3, kBackground);
+    canvas_.drawEllipse(centerX + 3, centerY, 5, 3, kBackground);
+    canvas_.drawEllipse(centerX - 3, centerY, 4, 2, TFT_WHITE);
+    canvas_.drawEllipse(centerX + 3, centerY, 4, 2, TFT_WHITE);
+  } else if (mode == AgentQuotaMode::Subscription && remaining >= 0) {
+    if (remaining > 0) {
+      const int fill = max(1, (barWidth - 2) * remaining / 100);
+      canvas_.fillRoundRect(barX + 1, barY + 1, fill, barHeight - 2, 1,
+                            color);
+    }
   } else {
-    canvas_.printf("%d%%", remaining);
+    canvas_.setTextColor(kTextDim, kBackground);
+    canvas_.setTextDatum(middle_center);
+    canvas_.drawString("--", barX + barWidth / 2, barY + barHeight / 2);
+    canvas_.setTextDatum(top_left);
   }
-  canvas_.drawRoundRect(x, 37, 72, 7, 2, kTextDim);
-  if (remaining > 0) {
-    const int fill = max(1, 68 * remaining / 100);
-    canvas_.fillRoundRect(x + 2, 39, fill, 3, 1, color);
-  }
+  canvas_.drawRoundRect(barX, barY, barWidth, barHeight, 2, kTextDim);
 }
 
 void DeviceUi::drawCodex() {
   const AgentSession* agent = selectedAgent();
-  PetVisualState visual = PetVisualState::Offline;
-  uint16_t statusColor = kTextDim;
+  const PetVisualState visual = codexVisualState();
+  const uint16_t statusColor = codexStatusColor();
+  String title = "Codex";
   String activity = pairing_.connected()
-      ? "Waiting for Codex sessions..." : "CardBridge is offline";
+      ? "Waiting for Codex sessions" : "CardBridge is offline";
   if (agent && pairing_.agentOnline()) {
+    title = !agent->title.isEmpty() ? agent->title
+                                   : (!agent->project.isEmpty() ? agent->project
+                                                               : String("Codex"));
     activity = agent->activity;
-    switch (agent->status) {
-      case AgentStatus::Running:
-        visual = agent->phase == AgentPhase::Tool
-                     ? PetVisualState::Running
-                     : PetVisualState::Thinking;
-        statusColor = kAccent;
-        break;
-      case AgentStatus::NeedsInput:
-        visual = PetVisualState::NeedsInput;
-        statusColor = kAccentWarm;
-        break;
-      case AgentStatus::Ready:
-        visual = PetVisualState::Ready;
-        statusColor = kGood;
-        break;
-      case AgentStatus::Blocked:
-        visual = PetVisualState::Blocked;
-        statusColor = kBad;
-        break;
-      case AgentStatus::Offline:
-        visual = PetVisualState::Offline;
-        statusColor = kTextDim;
-        break;
-      case AgentStatus::Idle:
-        visual = PetVisualState::Idle;
-        statusColor = kTextDim;
-        break;
-    }
   }
 
-  // ChatGPT OAuth exposes subscription windows. API key and custom-provider
-  // sessions keep the pet/status UI but omit the quota HUD entirely.
-  if (pairing_.agentQuota().available) {
-    const bool live = pairing_.agentOnline();
-    drawQuotaHud(6, live ? pairing_.agentQuota().weeklyRemaining : -1,
-                 "HP W", 0xF9E7);
-    drawQuotaHud(162, live ? pairing_.agentQuota().fiveHourRemaining : -1,
-                 "MP 5H", 0x05FF);
-  }
-  pet_.draw(canvas_, visual, 84, 28, millis());
+  // Final 1:1 layout: two 114px columns separated by four pixels.
+  canvas_.fillRoundRect(kCodexLeftX, kCodexPanelY, kCodexColumnWidth,
+                        kCodexPanelHeight, 7, kPanel);
+  canvas_.fillRoundRect(kCodexRightX, kCodexPanelY, kCodexColumnWidth,
+                        kCodexPanelHeight, 7, kPanel);
 
-  uint8_t attention = 0;
-  for (size_t i = 0; i < pairing_.agentCount(); ++i) {
-    if (i == agentSelection_) continue;
-    const AgentStatus status = pairing_.agent(i).status;
-    if (pairing_.agent(i).unread || status == AgentStatus::NeedsInput ||
-        status == AgentStatus::Blocked) ++attention;
-  }
-  canvas_.setTextFont(1);
-  canvas_.setTextColor(attention ? kAccentWarm : kTextDim, kBackground);
-  canvas_.setCursor(6, 98);
-  if (attention) canvas_.printf("!%u", attention);
-  canvas_.setTextDatum(bottom_right);
-  canvas_.setTextColor(kTextDim, kBackground);
-  if (pairing_.agentCount()) {
-    canvas_.drawString(String(agentSelection_ + 1) + "/" +
-                           String(pairing_.agentCount()),
-                       233, 106);
-  }
-  canvas_.setTextDatum(top_left);
+  pet_.draw(canvas_, visual, kCodexPetX, kCodexPetY, millis(), kCodexPetSize);
+  drawKeyboardModeIcon(kCodexKeyboardX, kCodexKeyboardY);
+  drawCodexSessionBadge(agentSelection_, pairing_.agentCount());
 
-  canvas_.fillRect(0, 110, kWidth, 25, kPanel);
-  canvas_.drawFastHLine(0, 110, kWidth, 0x2945);
-  canvas_.fillCircle(9, 122, 3, statusColor);
-  drawScrollingActivity(activity);
+  canvas_.fillRoundRect(kCodexContentX - 2, kCodexTitleY - 2,
+                        kCodexContentWidth + 4, kCodexTitleHeight + 4, 5,
+                        kBackground);
+  canvas_.fillRoundRect(kCodexContentX - 2, kCodexActivityY - 1,
+                        kCodexContentWidth + 4, kCodexActivityHeight + 3, 5,
+                        kBackground);
+  canvas_.drawRoundRect(kCodexContentX - 2, kCodexActivityY - 1,
+                        kCodexContentWidth + 4, kCodexActivityHeight + 3, 5,
+                        statusColor);
+  drawCodexTitle(title);
+  drawCodexActivity(activity);
+
+  AgentQuotaMode quotaMode = pairing_.agentOnline()
+                                 ? pairing_.agentQuota().mode
+                                 : AgentQuotaMode::Unknown;
+  drawQuotaRow(kCodexWeeklyY, "WEEKLY", pairing_.agentQuota().weeklyRemaining,
+               0xF9E7, quotaMode);
+  drawQuotaRow(kCodexFiveHourY, "5H", pairing_.agentQuota().fiveHourRemaining,
+               0x05FF, quotaMode);
 }
 
 void DeviceUi::drawMenuRow(int y, bool selected, const String& text,
@@ -728,18 +1082,6 @@ void DeviceUi::drawMenuRow(int y, bool selected, const String& text,
     canvas_.setCursor(kWidth - 10 - width, y + 4);
     canvas_.print(value);
   }
-}
-
-void DeviceUi::drawSettings() {
-  String timeout = settings_.screenTimeoutSec == 0
-      ? String("Never") : String(settings_.screenTimeoutSec) + "s";
-  drawMenuRow(30, settingsSelection_ == 0, "WiFi", clipped(wifi_.currentSsid(), 10));
-  drawMenuRow(52, settingsSelection_ == 1, "Computers",
-              String(pairing_.pairedCount()));
-  drawMenuRow(74, settingsSelection_ == 2, "Brightness",
-              String(settings_.brightness));
-  drawMenuRow(96, settingsSelection_ == 3, "Screen off", timeout);
-  drawHint("Esc: back");
 }
 
 void DeviceUi::drawWifi() {
@@ -844,6 +1186,54 @@ void DeviceUi::drawPairCode() {
   canvas_.setTextDatum(top_left);
   canvas_.setTextSize(1);
   drawHint("Enter pair  Esc cancel");
+}
+
+void DeviceUi::drawBrightness() {
+  canvas_.setTextDatum(middle_center);
+  canvas_.setTextSize(3);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.drawString(String(settings_.brightness), kWidth / 2, 53);
+  canvas_.setTextSize(1);
+  canvas_.setTextColor(kTextDim, kBackground);
+  canvas_.drawString("Display brightness", kWidth / 2, 76);
+
+  canvas_.drawRoundRect(28, 88, 184, 12, 3, kTextDim);
+  const int fill = max(3, 178 * settings_.brightness / 255);
+  canvas_.fillRoundRect(31, 91, fill, 6, 2, kAccent);
+  const size_t selected = brightnessLevelIndex(settings_.brightness);
+  for (size_t i = 0; i < sizeof(kBrightnessLevels); ++i) {
+    canvas_.fillCircle(64 + i * 37, 110, 3,
+                       i == selected ? kAccent : kPanel);
+  }
+  canvas_.setTextDatum(top_left);
+  drawHint("Left/right adjust  Esc back");
+}
+
+void DeviceUi::drawScreenOff() {
+  const String value = settings_.screenTimeoutSec == 0
+      ? String("Never") : String(settings_.screenTimeoutSec) + " sec";
+  canvas_.setTextDatum(middle_center);
+  canvas_.setTextSize(3);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.drawString(value, kWidth / 2, 55);
+  canvas_.setTextSize(1);
+  canvas_.setTextColor(kTextDim, kBackground);
+  canvas_.drawString("Automatic screen off", kWidth / 2, 78);
+
+  const size_t selected = screenTimeoutIndex(settings_.screenTimeoutSec);
+  static const char* labels[] = {"30", "60", "120", "300", "Never"};
+  for (size_t i = 0; i < sizeof(labels) / sizeof(labels[0]); ++i) {
+    const int x = 8 + i * 46;
+    const bool active = i == selected;
+    canvas_.fillRoundRect(x, 91, 40, 18, 4,
+                          active ? kPanelSelected : kPanel);
+    if (active) canvas_.drawRoundRect(x, 91, 40, 18, 4, kAccent);
+    canvas_.setTextColor(active ? TFT_WHITE : kTextDim,
+                         active ? kPanelSelected : kPanel);
+    canvas_.drawString(labels[i], x + 20, 100);
+  }
+  canvas_.setTextDatum(top_left);
+  drawHint("Left/right adjust  Esc back");
 }
 
 String DeviceUi::clipped(const String& value, size_t length) const {

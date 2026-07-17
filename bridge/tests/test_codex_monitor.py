@@ -8,10 +8,13 @@ from unittest.mock import patch
 
 from cardbridge.agents import AgentStore
 from cardbridge.codex_monitor import (
+    ACCOUNT_REFRESH_SECONDS,
     APP_SERVER_STREAM_LIMIT,
+    THREAD_REFRESH_SECONDS,
     CodexMonitor,
     find_codex_candidates,
     quota_available_from_account,
+    quota_mode_from_account,
 )
 
 
@@ -40,6 +43,22 @@ class CodexMonitorHelpersTests(unittest.TestCase):
                 {"requiresOpenaiAuth": False, "account": None}
             )
         )
+        self.assertEqual(
+            quota_mode_from_account(
+                {
+                    "requiresOpenaiAuth": True,
+                    "account": {"type": "chatgpt", "planType": "plus"},
+                }
+            ),
+            "subscription",
+        )
+        self.assertEqual(
+            quota_mode_from_account(
+                {"requiresOpenaiAuth": False, "account": None}
+            ),
+            "api",
+        )
+        self.assertEqual(quota_mode_from_account({}), "unknown")
 
     def test_path_cli_precedes_common_install_and_bundled_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -65,8 +84,93 @@ class CodexMonitorHelpersTests(unittest.TestCase):
     def test_app_server_stream_limit_allows_large_thread_list_records(self) -> None:
         self.assertGreater(APP_SERVER_STREAM_LIMIT, 64 * 1024)
 
+    def test_history_poll_is_fast_but_account_poll_stays_coarse(self) -> None:
+        self.assertLessEqual(THREAD_REFRESH_SECONDS, 2)
+        self.assertGreaterEqual(ACCOUNT_REFRESH_SECONDS, 30)
+
 
 class CodexMonitorFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rate_limit_failure_clears_stale_values_but_keeps_subscription(self) -> None:
+        class FailingLimitsClient:
+            async def request(self, method: str, params: object) -> dict:
+                if method == "thread/list":
+                    return {"data": []}
+                if method == "account/read":
+                    return {
+                        "requiresOpenaiAuth": True,
+                        "account": {"type": "chatgpt", "planType": "plus"},
+                    }
+                if method == "account/rateLimits/read":
+                    raise RuntimeError("temporarily unavailable")
+                raise AssertionError(method)
+
+        store = AgentStore()
+        store.set_quota_mode("subscription")
+        store.update_rate_limits(
+            {
+                "rateLimits": {
+                    "primary": {
+                        "usedPercent": 10,
+                        "windowDurationMins": 300,
+                    },
+                    "secondary": {
+                        "usedPercent": 20,
+                        "windowDurationMins": 10_080,
+                    },
+                }
+            }
+        )
+        monitor = CodexMonitor(store, executable="/fake/codex")
+        monitor.client = FailingLimitsClient()  # type: ignore[assignment]
+
+        await monitor.refresh()
+
+        self.assertEqual(store.quota_mode, "subscription")
+        self.assertIsNone(store.weekly)
+        self.assertIsNone(store.five_hour)
+
+    async def test_account_notification_never_guesses_unlimited_for_unknown_mode(self) -> None:
+        store = AgentStore()
+        monitor = CodexMonitor(store, executable="/fake/codex")
+
+        await monitor._notification("account/updated", {"authMode": "apikey"})
+        self.assertEqual(store.quota_mode, "api")
+
+        await monitor._notification(
+            "account/updated", {"authMode": "chatgptAuthTokens"}
+        )
+        self.assertEqual(store.quota_mode, "unknown")
+
+        await monitor._notification(
+            "account/updated", {"authMode": "futureProviderMode"}
+        )
+        self.assertEqual(store.quota_mode, "unknown")
+        await asyncio.sleep(0)
+
+    async def test_public_agent_delta_updates_activity_without_reasoning(self) -> None:
+        store = AgentStore()
+        monitor = CodexMonitor(store, executable="/fake/codex")
+        await monitor._notification(
+            "item/agentMessage/delta",
+            {
+                "threadId": "thread-a",
+                "turnId": "turn-a",
+                "itemId": "message-a",
+                "delta": "Now checking the CardBridge renderer layout.",
+            },
+        )
+        self.assertIn("renderer layout", store.sessions["thread-a"].activity)
+        await monitor._notification(
+            "item/reasoning/textDelta",
+            {
+                "threadId": "thread-a",
+                "turnId": "turn-a",
+                "itemId": "reasoning-a",
+                "delta": "hidden reasoning",
+            },
+        )
+        self.assertNotIn("hidden reasoning", store.sessions["thread-a"].activity)
+
     async def test_monitor_falls_back_without_losing_api_mode_sessions(self) -> None:
         attempts: list[str] = []
 
@@ -116,6 +220,7 @@ class CodexMonitorFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(attempts[:2], ["/bad/codex", "/good/codex"])
         self.assertIn("api-session", store.sessions)
+        self.assertEqual(store.snapshot()["quota"]["mode"], "api")
         self.assertFalse(store.snapshot()["quota"]["available"])
 
 

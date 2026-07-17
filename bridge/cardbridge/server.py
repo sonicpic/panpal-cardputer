@@ -286,6 +286,7 @@ class BridgeApp:
                 "hooks_listening": self.hook_transport is not None,
                 "hooks_installed": self.codex_hooks_installed,
                 "sessions": len(self.agents.sessions),
+                "quota_mode": self.agents.quota_mode,
                 "quota_available": self.agents.quota_available,
             },
             "devices": [

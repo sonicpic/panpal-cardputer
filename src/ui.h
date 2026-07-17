@@ -45,14 +45,14 @@ class DeviceUi {
  private:
   enum class Page : uint8_t {
     Main,
-    ComingSoon,
     Codex,
-    Settings,
     Wifi,
     WifiPassword,
     Computers,
     AddComputer,
     PairCode,
+    Brightness,
+    ScreenOff,
   };
 
   // input
@@ -68,12 +68,13 @@ class DeviceUi {
   void handleInput();
   void handleMain();
   void handleCodex();
-  void handleSettings();
   void handleWifi();
   void handlePassword();
   void handleComputers();
   void handleAddComputer();
   void handlePairCode();
+  void handleBrightness();
+  void handleScreenOff();
   void appendTypedText(String& destination, size_t maxLength, bool digitsOnly);
   void setPage(Page page);
   void setMode(UiMode mode);
@@ -85,19 +86,25 @@ class DeviceUi {
   void drawStatusBar();
   String statusBarTitle() const;
   void drawScrollingTitle(const String& title);
-  void drawScrollingActivity(const String& activity);
+  void drawCodexTitle(const String& title);
+  void drawCodexSessionBadge(size_t index, size_t count);
+  void drawCodexActivity(const String& activity);
+  void prepareCodexActivity(const String& activity);
+  String fitWithEllipsis(String text, int width, bool force);
   void drawKeyboardModeIcon(int x, int y);
   void drawMain();
-  void drawComingSoon();
   void drawCodex();
-  void drawQuotaHud(int x, int remaining, const char* label,
-                    uint16_t color);
-  void drawSettings();
+  void drawQuotaRow(int y, const char* label, int remaining,
+                    uint16_t color, AgentQuotaMode mode);
   void drawWifi();
   void drawPassword();
   void drawComputers();
   void drawAddComputer();
   void drawPairCode();
+  void drawBrightness();
+  void drawScreenOff();
+  void drawHomeSettingRow(int y, uint8_t index, const String& text,
+                          const String& value);
   void drawMenuRow(int y, bool selected, const String& text,
                    const String& value = String());
   void drawHint(const String& text);
@@ -107,6 +114,9 @@ class DeviceUi {
   void drawBattery(int x, int y);
   String clipped(const String& value, size_t length) const;
   const AgentSession* selectedAgent() const;
+  PetVisualState codexVisualState() const;
+  uint16_t codexStatusColor() const;
+  String codexPreviewStatus() const;
 
   SettingsStore& store_;
   WifiManager& wifi_;
@@ -125,17 +135,17 @@ class DeviceUi {
   UiMode mode_ = UiMode::Local;
   Page page_ = Page::Main;
   uint8_t mainSelection_ = 0;
-  uint8_t settingsSelection_ = 0;
+  uint8_t homeSettingSelection_ = 0;
   size_t listSelection_ = 0;
-  uint8_t comingAssistant_ = 0;
   size_t agentSelection_ = 0;
   String selectedAgentId_;
   String lastAgentFocusId_;
   uint32_t lastAgentFocusSeq_ = 0;
   String marqueeTitle_;
   uint32_t marqueeStartedMs_ = 0;
-  String marqueeActivity_;
-  uint32_t marqueeActivityStartedMs_ = 0;
+  String wrappedActivity_;
+  String activityLines_[4];
+  uint8_t activityLineCount_ = 0;
   String pendingSsid_;
   String textEntry_;
   bool screenOff_ = false;

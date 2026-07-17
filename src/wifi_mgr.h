@@ -1,6 +1,9 @@
 #pragma once
 
 #include <WiFi.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 #include "app_config.h"
 #include "models.h"
@@ -35,9 +38,11 @@ class WifiManager {
   const WifiScanResult& scanResult(size_t index) const { return scan_[index]; }
 
  private:
+  static void scanTaskEntry(void* argument);
   void tryKnownNetworks();
   bool startConnection(size_t index);
   void runPendingScan();
+  void pollScanResult();
   void collectResults(int16_t result);
   int savedIndex(const String& ssid) const;
 
@@ -48,6 +53,7 @@ class WifiManager {
   size_t scanCount_ = 0;
   bool scanning_ = false;
   bool pendingScan_ = false;
+  QueueHandle_t scanResultQueue_ = nullptr;
   bool needsSetup_ = false;
   uint32_t lastScanStartMs_ = 0;
   bool scanEverSucceeded_ = false;

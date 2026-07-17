@@ -4,6 +4,8 @@
 #include <ESPmDNS.h>
 #include <WiFiClient.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 #include "app_config.h"
 #include "models.h"
@@ -59,10 +61,27 @@ class PairingManager {
   const AgentQuota& agentQuota() const { return agentQuota_; }
 
  private:
+  struct ConnectResult {
+    uint32_t generation;
+    bool connected;
+  };
+
+  struct ConnectTaskContext {
+    PairingManager* manager;
+    IPAddress ip;
+    uint16_t port;
+    uint32_t generation;
+  };
+
+  static void connectTaskEntry(void* argument);
   int pairedIndexById(const String& id) const;
   int discoveredIndexById(const String& id) const;
-  void discover();
+  bool startDiscovery(bool forReconnect);
+  void pollDiscovery();
+  void collectDiscoveryResults(mdns_result_t* results);
   void attemptConnection();
+  void pollConnectionAttempt();
+  void cancelConnectionAttempt();
   void sendHello();
   bool sendDocument(JsonDocument& document);
   void readIncoming();
@@ -113,8 +132,15 @@ class PairingManager {
 
   LinkState state_ = LinkState::Offline;
   bool mdnsStarted_ = false;
+  mdns_search_once_t* discoverySearch_ = nullptr;
   bool discoveryRequested_ = false;
+  bool discoveryForReconnect_ = false;
+  bool rediscoveryRequired_ = true;
   bool manualDisconnect_ = false;
+  QueueHandle_t connectResultQueue_ = nullptr;
+  bool connectInFlight_ = false;
+  bool cancelConnect_ = false;
+  uint32_t connectGeneration_ = 0;
   uint8_t missedPongs_ = 0;
   uint32_t lastHeartbeatMs_ = 0;
   uint32_t nextConnectMs_ = 0;

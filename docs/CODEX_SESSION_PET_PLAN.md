@@ -2,7 +2,7 @@
 
 > 版本：v0.2（首版实现稿）
 > 日期：2026-07-15
-> 范围：先完成 Codex；Claude Agent 后续复用同一套设备协议和 UI 框架。
+> 范围：专注完成 Codex；本阶段不接入 Claude，也不保留 Claude 设备端入口。
 
 ## 1. 结论先行
 
@@ -78,29 +78,26 @@ Cardputer 沿用这四种语义，另外增加两个设备状态：
 
 这些能力可以在第二阶段逐项增加，但不能和只读监控一起一次性放开。
 
-## 4. Cardputer 页面设计(已定稿并实现)
+## 4. Cardputer 页面设计(2026-07-16 定稿)
 
-屏幕为 240×135，严格切成 20px + 90px + 25px 三段：
+屏幕为 240×135，使用 4px 外边距、左右各 114px 和 4px 中缝：
 
 ```text
 ┌────────────────────────────────────────┐
-│⌨  WiFi   项目名 · 会话标题(超长滚动)  🔋│ 20px
-├────────────────────────────────────────┤
-│ HP W 40%      ┌──────────┐  MP 5H --  │
-│ █████░░       │          │  ░░░░░░░   │
-│               │ PET 72²  │             │ 90px
-│ !1            │          │        2/4  │
-│               └──────────┘             │
-├────────────────────────────────────────┤
-│ ● Editing project files...             │ 25px
+│⌨   ┌──────────────┐ │ 会话标题（滚动） │
+│    │              │ │─────────────────│
+│    │   PET 100²   │ │ 具体实时公开文案 │
+│    │              │ │ 最多显示四行     │
+│    └──────────────┘ │ WEEKLY  ███████  │
+│                     │ 5H      ███████  │
 └────────────────────────────────────────┘
 ```
 
-- 顶栏只保留键盘、WiFi、电池三个图标，中间 144px 给会话标题；按实际像素宽度判断是否滚动。
-- HUD 左 72px 是周限额 HP，中间 72×72 是宠物，右 72px 是 5h 限额 MP。限额条与宠物同处一行。
-- 无 5h 限额时显示灰色 `MP 5H --`，不伪造百分比。
+- Codex 页移除完整顶栏，左上角只保留键盘微状态；WiFi、电池等全局状态仍保留在其他页面。
+- 左侧把 72×72 RLE 宠物运行时放大到 100×100；右侧有效文字宽度 106px，标题单行滚动、正文按中英文安全换行且最多四行。
+- `WEEKLY` 与 `5H` 各占 10px 高：订阅显示真实比例，API 显示彩色动态无限条，读取失败显示灰色 `--`。
 - 左右键循环切换最多 8 个会话；Enter 只清除当前会话的 CardBridge 本地提醒；ESC 返回主页。
-- 新的 `UserPromptSubmit` 会把宠物跟随目标切回该会话。其他会话有 Needs input / Blocked / Ready 时以 `!N` 提醒。
+- 新的 `UserPromptSubmit` 会把宠物跟随目标切回该会话。左右键仍可切换最多八个会话，Enter 只清本地提醒。
 - 键盘模式开启时，动画和状态照常刷新，但页面不可操作，按键全部继续发给 Mac。
 
 ## 5. 宠物形象方案
@@ -154,7 +151,7 @@ Cardputer ADV 无 PSRAM，不在设备运行时解码大 PNG/WebP。构建时把
 - 额外运行时堆目标：不超过 8KB；不创建第二张全屏 Canvas。
 - 动画刷新：最高 8 fps，状态文字可按现有 UI 节奏刷新。
 
-中文会话标题使用从 Source Han Sans CN Medium 生成的 15px、4-bit 抗锯齿 BFF 字库。压缩字形保存在 Flash，RAM 只保留 M5GFX 的字符定位表；缺字时仍可回退到内置字体加载失败保护。
+中文会话标题和活动正文使用从 Source Han Sans CN Medium 原生生成的 13px、4-bit 抗锯齿 BFF 字库。原生字号避免在 M5GFX 中分数缩放造成逐字 advance 取整和字距拥挤；字形保存在 Flash，RAM 只保留 M5GFX 的字符定位表，缺字时仍可回退到内置字体加载失败保护。
 
 ### 5.4 实际构建链
 
@@ -180,13 +177,13 @@ python3 tools/pack_pet.py --pet-dir "$HOME/.codex/pets/<name>" --output-dir src
 
 ### 5.5 固件大小实测
 
-当前完成版固件实测 2,457,142 字节，app 分区约 3.34MB；静态 RAM 64,924 字节。资源组成包括：
+当前完成版固件实测 2,464,018 字节，app 分区约 3.34MB；静态 RAM 65,068 字节。资源组成包括：
 
 - 中文字体文件：约 835KB。
 - 宠物动画 RLE：73,270 字节。
 - 会话模型、协议和页面代码：约 30–80KB。
 
-实际占用为 app 分区 73.5%、链接器 RAM 预算 19.8%，剩余 885,194 字节 Flash 分区空间。
+实际占用为 app 分区 73.7%、链接器 RAM 预算 19.9%，剩余 878,318 字节 Flash 分区空间。
 
 ## 6. Mac 端架构
 
@@ -258,13 +255,15 @@ CardBridge 内部以完整 `session_id` 为主键：
   "provider":"codex",
   "seq":42,
   "focus_id":"019f6504-afce-70c0-b317-2791d67e952d",
-  "quota":{"weekly":{"remaining":40},"five_hour":null},
+  "focus_seq":7,
+  "quota":{"mode":"subscription","available":true,"weekly":{"remaining":40},"five_hour":null},
   "items":[
     {
       "id":"019f6504-afce-70c0-b317-2791d67e952d",
       "title":"Codex 会话与宠物规划",
       "project":"m5 cardputer",
       "status":"needs_input",
+      "phase":"",
       "activity":"Waiting for your approval",
       "unread":true,
       "updated_ms":1784109000000
@@ -282,8 +281,9 @@ CardBridge 内部以完整 `session_id` 为主键：
   "provider":"codex",
   "seq":43,
   "focus_id":"019f6504-afce-70c0-b317-2791d67e952d",
-  "quota":{"weekly":{"remaining":40},"five_hour":null},
-  "items":[{"id":"019f6504-afce-70c0-b317-2791d67e952d","status":"ready","unread":true}],
+  "focus_seq":7,
+  "quota":{"mode":"api","available":false,"weekly":null,"five_hour":null},
+  "items":[{"id":"019f6504-afce-70c0-b317-2791d67e952d","status":"running","phase":"tool","activity":"Building firmware","unread":false}],
   "token":"..."
 }
 ```

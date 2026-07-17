@@ -3,9 +3,9 @@
 enum GeneratedVersion {
     static let release = "1.0.0"
     static let app = "1.0.0"
-    static let appBuild = 4
+    static let appBuild = 6
     static let agent = "1.0.0"
-    static let agentBuild = 4
+    static let agentBuild = 6
     static let agentAPIMajor = 1
     static let agentAPIMinor = 0
     static let deviceProtocolMajor = 2

@@ -19,12 +19,12 @@ enum class PetVisualState : uint8_t {
 class PetRenderer {
  public:
   void draw(M5Canvas& canvas, PetVisualState state, int x, int y,
-            uint32_t nowMs);
+            uint32_t nowMs, uint16_t size = pet_assets::kFrameWidth);
 
  private:
   pet_assets::AnimationId animationFor(PetVisualState state) const;
   void drawFrame(M5Canvas& canvas, const pet_assets::Frame& frame,
-                 int x, int y) const;
+                 int x, int y, uint16_t size) const;
 
   PetVisualState state_ = PetVisualState::Offline;
   uint8_t frameIndex_ = 0;

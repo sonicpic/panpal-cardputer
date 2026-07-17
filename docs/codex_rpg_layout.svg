@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Codex 详情页线框布局</title>
+  <desc id="desc">240 by 135 pixel Cardputer screen wireframe. The two 114-pixel columns split the screen evenly: a 100 by 100 animated pet on the left and title, live activity, weekly, and five-hour quota on the right.</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto-start-reverse">
+      <path d="M0 0 L8 4 L0 8Z" fill="#446078"/>
+    </marker>
+    <pattern id="diagonal" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="10" stroke="#b7c5d1" stroke-width="2" opacity="0.35"/>
+    </pattern>
+    <style>
+      .sans { font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .mono { font-family: "SFMono-Regular", Menlo, Consolas, monospace; }
+      .label { fill: #243746; font-size: 15px; font-weight: 700; }
+      .note { fill: #587083; font-size: 13px; }
+      .dim { fill: #3d5669; font-size: 13px; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="760" fill="#f5f7f9"/>
+  <text x="100" y="52" class="sans" fill="#172a38" font-size="26" font-weight="750">Codex 详情页 · 占比线框图</text>
+  <text x="100" y="78" class="sans note">原生画布 240×135 px · 左右各 114 px · 中间间距 4 px</text>
+
+  <!-- Screen shown at exactly 4× scale. -->
+  <g transform="translate(100 110)">
+    <rect width="960" height="540" rx="8" fill="#ffffff" stroke="#172a38" stroke-width="3"/>
+
+    <!-- Safe margin. -->
+    <rect x="16" y="16" width="928" height="508" fill="none" stroke="#92a4b2" stroke-width="2" stroke-dasharray="7 6"/>
+
+    <!-- Left half: (4,4), 114×127. -->
+    <rect x="16" y="16" width="456" height="508" rx="12" fill="#e9eef2" stroke="#344e61" stroke-width="3"/>
+
+    <!-- Pet viewport: (11,18), 100×100. -->
+    <rect x="44" y="72" width="400" height="400" rx="12" fill="url(#diagonal)" stroke="#61788a" stroke-width="2"/>
+    <line x1="44" y1="72" x2="444" y2="472" stroke="#8da0ae" stroke-width="2"/>
+    <line x1="444" y1="72" x2="44" y2="472" stroke="#8da0ae" stroke-width="2"/>
+    <rect x="121" y="231" width="246" height="82" rx="10" fill="#f5f7f9" stroke="#61788a" stroke-width="2"/>
+    <text x="244" y="264" class="sans label" font-size="20" text-anchor="middle">宠物动画</text>
+    <text x="244" y="291" class="mono note" text-anchor="middle">100×100 px</text>
+
+    <!-- Keyboard remains a floating micro-status and consumes no layout row. -->
+    <rect x="24" y="24" width="72" height="48" rx="7" fill="#ffffff" stroke="#344e61" stroke-width="2"/>
+    <text x="60" y="54" class="sans label" font-size="12" text-anchor="middle">键盘</text>
+
+    <!-- Four-pixel gap. -->
+    <rect x="472" y="16" width="16" height="508" fill="#f5f7f9"/>
+
+    <!-- Right half: (122,4), 114×127. -->
+    <rect x="488" y="16" width="456" height="508" rx="12" fill="#ffffff" stroke="#344e61" stroke-width="3"/>
+
+    <!-- Title: (126,8), 106×18. -->
+    <rect x="504" y="32" width="424" height="72" rx="7" fill="#edf1f4" stroke="#728797" stroke-width="2"/>
+    <text x="716" y="62" class="sans label" font-size="17" text-anchor="middle">任务标题</text>
+    <text x="716" y="86" class="sans note" text-anchor="middle">106×18 px · 单行滚动</text>
+
+    <!-- Activity: (126,29), 106×70. -->
+    <rect x="504" y="116" width="424" height="280" rx="7" fill="#f8fafb" stroke="#728797" stroke-width="2"/>
+    <text x="524" y="149" class="sans label">实时文案</text>
+    <g stroke="#9cacb8" stroke-width="7" stroke-linecap="round">
+      <line x1="524" y1="188" x2="897" y2="188"/>
+      <line x1="524" y1="244" x2="864" y2="244"/>
+      <line x1="524" y1="300" x2="908" y2="300"/>
+      <line x1="524" y1="356" x2="846" y2="356"/>
+    </g>
+    <text x="716" y="384" class="sans note" text-anchor="middle">最多 4 行</text>
+
+    <!-- Compact 10px Weekly and five-hour rows. -->
+    <rect x="504" y="412" width="424" height="40" rx="6" fill="#f8fafb" stroke="#728797" stroke-width="2"/>
+    <text x="516" y="439" class="mono label" font-size="13">WEEKLY</text>
+    <rect x="648" y="422" width="268" height="20" rx="5" fill="#cfd9e1"/>
+
+    <rect x="504" y="464" width="424" height="40" rx="6" fill="#f8fafb" stroke="#728797" stroke-width="2"/>
+    <text x="516" y="491" class="mono label" font-size="13">5H</text>
+    <rect x="648" y="474" width="268" height="20" rx="5" fill="#cfd9e1"/>
+  </g>
+
+  <!-- Exact dimensions. -->
+  <g class="mono dim" stroke="#446078" stroke-width="1.5">
+    <line x1="100" y1="94" x2="1060" y2="94" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="580" y="88" stroke="none" text-anchor="middle">240 px</text>
+
+    <line x1="80" y1="110" x2="80" y2="650" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="67" y="386" stroke="none" text-anchor="middle" transform="rotate(-90 67 386)">135 px</text>
+
+    <line x1="116" y1="672" x2="572" y2="672" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="344" y="695" stroke="none" text-anchor="middle">左侧 114 px</text>
+
+    <line x1="588" y1="672" x2="1044" y2="672" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="816" y="695" stroke="none" text-anchor="middle">右侧 114 px</text>
+  </g>
+
+  <g transform="translate(1090 128)" class="sans">
+    <text class="label" font-size="18">宽度分配</text>
+    <text y="35" class="mono note">4 + 114 + 4 + 114 + 4</text>
+    <text y="58" class="mono note">= 240 px</text>
+
+    <text y="112" class="label" font-size="18">左侧宠物</text>
+    <text y="147" class="note">100 × 100 px</text>
+    <text y="170" class="note">现有素材 72 × 72，</text>
+    <text y="193" class="note">居中放大到 100²。</text>
+
+    <text y="270" class="label" font-size="18">右侧文案</text>
+    <text y="305" class="note">有效宽度：106 px</text>
+    <text y="328" class="note">标题：1 行滚动</text>
+    <text y="351" class="note">正文：最多 4 行</text>
+    <text y="374" class="note">限额：每行仅 10 px 高</text>
+  </g>
+</svg>

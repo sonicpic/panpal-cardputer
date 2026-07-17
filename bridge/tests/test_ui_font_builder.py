@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from tools.build_ui_font import OUTPUT_SHA256, glyph_codepoints, sha256
+from tools.build_ui_font import OUTPUT_SHA256, PIXEL_SIZE, glyph_codepoints, sha256
 
 
 class UiFontBuilderTests(unittest.TestCase):
@@ -13,7 +13,8 @@ class UiFontBuilderTests(unittest.TestCase):
         for character in "回复问候社交平台任务完成":
             self.assertIn(ord(character), codepoints)
 
-        asset = Path("assets/fonts/cardbridge-ui-15.bff")
+        self.assertEqual(PIXEL_SIZE, 13)
+        asset = Path(f"assets/fonts/cardbridge-ui-{PIXEL_SIZE}.bff")
         self.assertTrue(asset.is_file())
         self.assertEqual(sha256(asset), OUTPUT_SHA256)
 

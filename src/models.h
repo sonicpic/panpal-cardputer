@@ -76,9 +76,16 @@ struct AgentSession {
   bool unread = false;
 };
 
+enum class AgentQuotaMode : uint8_t {
+  Unknown,
+  Subscription,
+  Api,
+};
+
 struct AgentQuota {
-  // ChatGPT OAuth has subscription windows; API/custom-provider mode does not.
-  bool available = false;
+  // Subscription has real windows; API means those ChatGPT windows do not
+  // apply; Unknown means the bridge could not determine the account mode.
+  AgentQuotaMode mode = AgentQuotaMode::Unknown;
   // -1 means the server did not report that quota window.
   int8_t weeklyRemaining = -1;
   int8_t fiveHourRemaining = -1;

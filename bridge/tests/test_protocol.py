@@ -11,6 +11,7 @@ from cardbridge._generated_version import CONFIG_SCHEMA
 from cardbridge.config import BridgeConfig
 from cardbridge.protocol import (
     AUDIO_PAYLOAD_SIZE,
+    MAX_JSON_LINE,
     ProtocolError,
     decode_message,
     encode_message,
@@ -44,6 +45,10 @@ class ProtocolTests(unittest.TestCase):
         encoded = encode_message(message)
         self.assertNotIn(b"\\u", encoded)
         self.assertEqual(decode_message(encoded), message)
+
+    def test_json_encoder_rejects_records_above_device_limit(self) -> None:
+        with self.assertRaises(ProtocolError):
+            encode_message({"t": "oversized", "value": "x" * MAX_JSON_LINE})
 
 
 class ConfigTests(unittest.TestCase):

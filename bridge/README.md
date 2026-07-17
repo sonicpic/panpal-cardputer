@@ -59,7 +59,7 @@ python install_launch_agent.py uninstall
 
 ## 5. Enable Codex live status
 
-Session names/projects come from a separate read-only official Codex App Server in every local authentication mode. ChatGPT OAuth additionally exposes its weekly/5-hour subscription limits; API key and custom-provider modes keep Session Pet active but hide the quota HUD. Real-time state comes from official lifecycle Hooks, reported by a fail-open local script over UDP `127.0.0.1:7790`. No prompt text, transcript, tool arguments, or `auth.json` contents are sent to CardBridge.
+Session names/projects and public streamed agent/tool events come from a separate read-only official Codex App Server in every local authentication mode. Official lifecycle Hooks remain the cross-process fallback and report over UDP `127.0.0.1:7790`. CardBridge derives only a short safe action such as `Editing ui.cpp` or `Building firmware`; it never forwards raw commands, tool arguments, prompt text, transcripts, reasoning events, command output, or `auth.json`. ChatGPT OAuth exposes real weekly/5-hour windows; API/custom-provider mode is explicitly marked unlimited for those ChatGPT windows, while lookup failure remains unknown rather than being mislabeled unlimited.
 
 The packaged App manages Hooks from Settings and points them at the bundled stable Agent path. For source-only development, preview the merged user-level hook configuration first:
 
@@ -132,7 +132,7 @@ python3 tools/generate_versions.py --check
 
 ## Protocol and recovery behavior
 
-- TCP `7788`: newline-delimited UTF-8 JSON capped at 4096 bytes, five-second ping/pong, disconnect after three misses. The hello negotiates device protocol major/minor and the capability intersection. Missing fields are accepted as legacy v1; an unsupported major receives `upgrade_required`. Every post-handshake message carries the session token; unknown authenticated message types are ignored for forward compatibility.
+- TCP `7788`: newline-delimited UTF-8 JSON capped at 4096 bytes, five-second ping/pong, disconnect after three misses. Agent snapshots budget titles to 32 characters, project names to 20 characters, and public activity to 72 UTF-8 bytes so all eight worst-case CJK sessions still fit. The hello negotiates device protocol major/minor and the capability intersection. Missing fields are accepted as legacy v1; an unsupported major receives `upgrade_required`. Every post-handshake message carries the session token; unknown authenticated message types are ignored for forward compatibility.
 - UDP `7789`: network-order `seq(u32) + timestamp_ms(u32) + HMAC8`, followed by exactly 640 bytes of little-endian PCM16 mono audio.
 - Local Unix socket: Agent API v1 newline-delimited JSON for status subscriptions and menu bar commands, limited to the logged-in user.
 - Playback starts at a configurable 100 ms jitter depth. Missing sequences become silence; packets are not retransmitted.

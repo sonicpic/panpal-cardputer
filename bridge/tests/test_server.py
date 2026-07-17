@@ -110,6 +110,64 @@ class ServerEndToEndTests(unittest.IsolatedAsyncioTestCase):
         writer2.close()
         await writer2.wait_closed()
 
+    async def test_device_protocol_delivers_all_three_quota_modes(self) -> None:
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.app.tcp_port)
+        writer.write(
+            encode_message({"t": "hello", "dev_id": "quota-device", "token": None})
+        )
+        await writer.drain()
+        self.assertEqual((await self.read(reader))["t"], "pair_required")
+        writer.write(encode_message({"t": "pair", "code": "483291"}))
+        await writer.drain()
+        paired = await self.read(reader)
+        token = str(paired["token"])
+
+        initial = await self.read(reader)
+        self.assertEqual(initial["t"], "agent_status")
+        self.assertEqual(initial["quota"]["mode"], "unknown")
+        self.assertIsNone(initial["quota"]["weekly"])
+        self.assertIsNone(initial["quota"]["five_hour"])
+
+        self.app.agents.set_quota_mode("api")
+        api = await self.read(reader)
+        self.assertEqual(api["quota"]["mode"], "api")
+        self.assertFalse(api["quota"]["available"])
+        self.assertIsNone(api["quota"]["weekly"])
+        self.assertIsNone(api["quota"]["five_hour"])
+
+        self.app.agents.set_quota_mode("subscription")
+        self.app.agents.update_rate_limits(
+            {
+                "rateLimits": {
+                    "primary": {
+                        "usedPercent": 25,
+                        "windowDurationMins": 300,
+                    },
+                    "secondary": {
+                        "usedPercent": 40,
+                        "windowDurationMins": 10_080,
+                    },
+                }
+            }
+        )
+        subscription = await self.read(reader)
+        self.assertEqual(subscription["quota"]["mode"], "subscription")
+        self.assertTrue(subscription["quota"]["available"])
+        self.assertEqual(subscription["quota"]["five_hour"]["remaining"], 75)
+        self.assertEqual(subscription["quota"]["weekly"]["remaining"], 60)
+
+        self.app.agents.set_quota_mode("unknown")
+        unknown = await self.read(reader)
+        self.assertEqual(unknown["quota"]["mode"], "unknown")
+        self.assertIsNone(unknown["quota"]["weekly"])
+        self.assertIsNone(unknown["quota"]["five_hour"])
+
+        writer.write(encode_message({"t": "ping", "token": token}))
+        await writer.drain()
+        self.assertEqual((await self.read(reader))["t"], "pong")
+        writer.close()
+        await writer.wait_closed()
+
     async def test_incompatible_protocol_gets_upgrade_response_before_pairing(self) -> None:
         reader, writer = await asyncio.open_connection("127.0.0.1", self.app.tcp_port)
         writer.write(

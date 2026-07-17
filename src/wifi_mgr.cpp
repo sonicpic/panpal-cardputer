@@ -6,6 +6,8 @@ namespace cardbridge {
 
 void WifiManager::begin() {
   savedCount_ = store_.loadWifiNetworks(saved_, kMaxWifiNetworks);
+  scanResultQueue_ = xQueueCreate(1, sizeof(int16_t));
+  if (!scanResultQueue_) Serial.println("[wifi] failed to create scan result queue");
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);  // Credentials live in our own multi-network NVS list.
@@ -18,7 +20,8 @@ void WifiManager::begin() {
 }
 
 void WifiManager::tick() {
-  if (pendingScan_) runPendingScan();
+  pollScanResult();
+  if (pendingScan_ && !scanning_) runPendingScan();
 
   // The boot-time scan can run before the STA interface is fully up and come
   // back empty. Keep retrying while we have never seen a network.
@@ -32,6 +35,11 @@ void WifiManager::tick() {
     connectStartedMs_ = 0;
     return;
   }
+
+  // The radio scan runs on a low-priority worker. Do not start or tear down a
+  // station connection underneath it; the main loop remains free to scan keys
+  // and draw the UI while the worker waits for the WiFi driver.
+  if (scanning_) return;
 
   const uint32_t now = millis();
   if (connectStartedMs_ && now - connectStartedMs_ > 12000) {
@@ -53,25 +61,45 @@ void WifiManager::tick() {
   }
 }
 
-// The async scan API is unreliable on this core (scanComplete() reports
-// "done, 0 networks" instantly, sometimes -2, while a synchronous scan
-// reliably finds APs — verified on hardware 2026-07-14). We therefore scan
-// synchronously, but deferred by one loop so the UI can paint "Scanning..."
-// before tick() blocks for the 2-4 s sweep.
+// The Arduino async scan API is unreliable on this core (scanComplete() reports
+// "done, 0 networks" instantly, sometimes -2). Keep the reliable synchronous
+// driver call, but run it on core 0 at low priority so its 2-4 second wait never
+// stalls keyboard sampling or rendering on the Arduino loop task.
 void WifiManager::startScan() {
-  if (pendingScan_) return;
+  if (pendingScan_ || scanning_) return;
   scanCount_ = 0;
   pendingScan_ = true;
 }
 
 void WifiManager::runPendingScan() {
   pendingScan_ = false;
+  if (!scanResultQueue_) {
+    Serial.println("[wifi] scan unavailable: no result queue");
+    return;
+  }
   scanning_ = true;
   WiFi.scanDelete();
   lastScanStartMs_ = millis();
+  if (xTaskCreatePinnedToCore(scanTaskEntry, "wifi_scan", 4096, this, 1,
+                              nullptr, 0) != pdPASS) {
+    scanning_ = false;
+    Serial.println("[wifi] failed to start scan worker");
+  }
+}
+
+void WifiManager::scanTaskEntry(void* argument) {
+  auto* manager = static_cast<WifiManager*>(argument);
   const int16_t result = WiFi.scanNetworks(false, false);
+  xQueueOverwrite(manager->scanResultQueue_, &result);
+  vTaskDelete(nullptr);
+}
+
+void WifiManager::pollScanResult() {
+  if (!scanning_ || !scanResultQueue_) return;
+  int16_t result = WIFI_SCAN_FAILED;
+  if (xQueueReceive(scanResultQueue_, &result, 0) != pdPASS) return;
   scanning_ = false;
-  Serial.printf("[wifi] sync scan result: %d\n", result);
+  Serial.printf("[wifi] worker scan result: %d\n", result);
   collectResults(result);
 }
 
