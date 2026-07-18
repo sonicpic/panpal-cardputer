@@ -24,7 +24,7 @@ SerialConsole console(settingsStore, wifi, pairing, audio, ui, settings);
 
 void printBootInfo() {
   Serial.println();
-  Serial.println("CardBridge / Cardputer ADV");
+  Serial.println("CODEX DECK / Cardputer ADV");
   Serial.printf("Firmware: %s build %lu, protocol %u.%u\n", kFirmwareVersion,
                 static_cast<unsigned long>(kFirmwareBuild),
                 kDeviceProtocolMajor, kDeviceProtocolMinor);

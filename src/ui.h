@@ -92,10 +92,19 @@ class DeviceUi {
   void prepareCodexActivity(const String& activity);
   String fitWithEllipsis(String text, int width, bool force);
   void drawKeyboardModeIcon(int x, int y);
+  void drawGameBackground();
+  void drawAngularPanel(int x, int y, int width, int height, bool selected);
+  void drawWorkshopStage(int x, int y, int width, int height,
+                         PetVisualState state);
+  void drawWorkshopMonitor(PetVisualState state, uint32_t now);
+  void drawWorkshopDataConduit(PetVisualState state, uint32_t now);
+  void drawCodexScene(PetVisualState state);
+  void drawCodexPlatformEffect(PetVisualState state, uint32_t now);
+  void drawHomeStatusLine(int x, int y, int width, PetVisualState state);
   void drawMain();
   void drawCodex();
   void drawQuotaRow(int y, const char* label, int remaining,
-                    uint16_t color, AgentQuotaMode mode);
+                    AgentQuotaMode mode);
   void drawWifi();
   void drawPassword();
   void drawComputers();
@@ -116,6 +125,7 @@ class DeviceUi {
   const AgentSession* selectedAgent() const;
   PetVisualState codexVisualState() const;
   uint16_t codexStatusColor() const;
+  const char* codexStatusLabel(PetVisualState state) const;
   String codexPreviewStatus() const;
 
   SettingsStore& store_;
@@ -141,6 +151,8 @@ class DeviceUi {
   String selectedAgentId_;
   String lastAgentFocusId_;
   uint32_t lastAgentFocusSeq_ = 0;
+  PetVisualState codexEffectState_ = PetVisualState::Idle;
+  uint32_t codexEffectStateStartedMs_ = 0;
   String marqueeTitle_;
   uint32_t marqueeStartedMs_ = 0;
   String wrappedActivity_;

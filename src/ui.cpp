@@ -1,5 +1,6 @@
 #include "ui.h"
 
+#include "ui_background_asset.h"
 #include "ui_font_data.h"
 
 namespace cardbridge {
@@ -10,7 +11,9 @@ constexpr int kHeight = 135;
 constexpr int kStatusHeight = 20;
 constexpr uint16_t kBackground = 0x0841;   // near-black blue
 constexpr uint16_t kPanel = 0x18E3;        // card body
+constexpr uint16_t kPanelDeep = 0x08A2;    // recessed stage / card footer
 constexpr uint16_t kPanelSelected = 0x0339;
+constexpr uint16_t kLine = 0x2A2C;         // quiet structural line
 constexpr uint16_t kAccent = 0x05FF;       // cyan
 constexpr uint16_t kAccentWarm = 0xFD20;   // orange
 constexpr uint16_t kTextDim = 0x8410;
@@ -23,8 +26,8 @@ constexpr int kCodexColumnWidth = 114;
 constexpr int kCodexRightX = kCodexLeftX + kCodexColumnWidth + kCodexGap;
 constexpr int kCodexPanelY = 4;
 constexpr int kCodexPanelHeight = 127;
-constexpr int kCodexPetX = 11;
-constexpr int kCodexPetY = 18;
+constexpr int kCodexPetX = 6;
+constexpr int kCodexPetY = 10;
 constexpr int kCodexPetSize = 100;
 constexpr int kCodexKeyboardX = 6;
 constexpr int kCodexKeyboardY = 6;
@@ -50,22 +53,14 @@ constexpr int kCodexActivityLinePitch = 17;
 constexpr int kCodexWeeklyY = 103;
 constexpr int kCodexFiveHourY = 116;
 constexpr int kCodexQuotaRowHeight = 10;
-// Low-saturation rainbow stops. Adjacent stops are interpolated per pixel so
-// API quota bars flow as one calm gradient rather than flashing color blocks.
-constexpr uint16_t kUnlimitedGradient[] = {
-    0xD474, 0xC4DB, 0x8D7C, 0x763A, 0x8655, 0xD60F, 0xDD0F,
-};
 constexpr uint8_t kBrightnessLevels[] = {64, 128, 192, 255};
 constexpr uint16_t kScreenTimeouts[] = {30, 60, 120, 300, 0};
 
 static_assert(kCodexLeftX == kCodexMargin);
 static_assert(kCodexRightX + kCodexColumnWidth + kCodexMargin == kWidth);
 static_assert(kCodexPanelY + kCodexPanelHeight + kCodexMargin == kHeight);
-static_assert(kCodexPetX >= kCodexLeftX &&
-              kCodexPetX + kCodexPetSize <= kCodexLeftX + kCodexColumnWidth);
-static_assert(kCodexPetY >= kCodexPanelY &&
-              kCodexPetY + kCodexPetSize <= kCodexPanelY + kCodexPanelHeight);
-static_assert(kCodexSessionBadgeY + kCodexSessionBadgeHeight <= kCodexPetY);
+static_assert(kCodexPetX >= 0 && kCodexPetX + kCodexPetSize <= kCodexRightX);
+static_assert(kCodexPetY >= 0 && kCodexPetY + kCodexPetSize <= kHeight);
 static_assert(kCodexContentX + kCodexContentWidth <=
               kCodexRightX + kCodexColumnWidth);
 static_assert(kCodexTitleY + kCodexTitleHeight <= kCodexActivityY);
@@ -77,6 +72,8 @@ static_assert(kCodexActivityTextInsetY +
 static_assert(kCodexWeeklyY + kCodexQuotaRowHeight <= kCodexFiveHourY);
 static_assert(kCodexFiveHourY + kCodexQuotaRowHeight <=
               kCodexPanelY + kCodexPanelHeight);
+static_assert(ui_background_asset::kWidth == kWidth);
+static_assert(ui_background_asset::kHeight == kHeight);
 
 size_t brightnessLevelIndex(uint8_t value) {
   for (size_t i = 0; i < sizeof(kBrightnessLevels); ++i) {
@@ -321,26 +318,28 @@ void DeviceUi::handleInput() {
 
 void DeviceUi::handleMain() {
   if (navLeft()) {
-    if (mainSelection_ > 0) {
+    if (mainSelection_ == 2) {
+      mainSelection_ = 1;
+    } else if (mainSelection_ == 4) {
+      mainSelection_ = 3;
+    } else if (mainSelection_ > 0) {
       homeSettingSelection_ = mainSelection_ - 1;
       mainSelection_ = 0;
     }
   } else if (navRight()) {
-    if (mainSelection_ == 0) mainSelection_ = homeSettingSelection_ + 1;
+    if (mainSelection_ == 0) {
+      mainSelection_ = homeSettingSelection_ + 1;
+    } else if (mainSelection_ == 1) {
+      mainSelection_ = 2;
+    } else if (mainSelection_ == 3) {
+      mainSelection_ = 4;
+    }
   } else if (navUp()) {
-    if (mainSelection_ == 0) {
-      homeSettingSelection_ = 3;
-    } else {
-      homeSettingSelection_ = (mainSelection_ + 2) % 4;
-    }
-    mainSelection_ = homeSettingSelection_ + 1;
+    if (mainSelection_ == 3) mainSelection_ = 1;
+    if (mainSelection_ == 4) mainSelection_ = 2;
   } else if (navDown()) {
-    if (mainSelection_ == 0) {
-      homeSettingSelection_ = 0;
-    } else {
-      homeSettingSelection_ = mainSelection_ % 4;
-    }
-    mainSelection_ = homeSettingSelection_ + 1;
+    if (mainSelection_ == 1) mainSelection_ = 3;
+    if (mainSelection_ == 2) mainSelection_ = 4;
   } else if (enterPressed()) {
     switch (mainSelection_) {
       case 0:
@@ -364,6 +363,7 @@ void DeviceUi::handleMain() {
         break;
     }
   }
+  if (mainSelection_ > 0) homeSettingSelection_ = mainSelection_ - 1;
 }
 
 void DeviceUi::handleCodex() {
@@ -560,7 +560,11 @@ void DeviceUi::updateScreenPower() {
 
 void DeviceUi::render() {
   if (!canvas_.getBuffer()) return;  // allocation failed — never draw blind
-  canvas_.fillSprite(kBackground);
+  if (page_ == Page::Main) {
+    drawGameBackground();
+  } else {
+    canvas_.fillSprite(kBackground);
+  }
   if (page_ != Page::Codex) drawStatusBar();
   switch (page_) {
     case Page::Main: drawMain(); break;
@@ -614,7 +618,7 @@ void DeviceUi::drawStatusBar() {
 
 String DeviceUi::statusBarTitle() const {
   switch (page_) {
-    case Page::Main: return "CardBridge";
+    case Page::Main: return "CODEX DECK";
     case Page::Codex: {
       const AgentSession* agent = selectedAgent();
       if (!agent) return "Codex";
@@ -630,7 +634,7 @@ String DeviceUi::statusBarTitle() const {
     case Page::Brightness: return "Brightness";
     case Page::ScreenOff: return "Screen off";
   }
-  return "CardBridge";
+  return "CODEX DECK";
 }
 
 void DeviceUi::drawScrollingTitle(const String& title) {
@@ -690,19 +694,16 @@ void DeviceUi::drawCodexTitle(const String& title) {
 
 void DeviceUi::drawCodexSessionBadge(size_t index, size_t count) {
   if (count == 0) return;
-  canvas_.fillRoundRect(kCodexSessionBadgeX, kCodexSessionBadgeY,
-                        kCodexSessionBadgeWidth, kCodexSessionBadgeHeight, 3,
-                        kBackground);
-  canvas_.drawRoundRect(kCodexSessionBadgeX, kCodexSessionBadgeY,
-                        kCodexSessionBadgeWidth, kCodexSessionBadgeHeight, 3,
-                        kTextDim);
   canvas_.setTextFont(1);
   canvas_.setTextSize(1);
-  canvas_.setTextColor(TFT_WHITE, kBackground);
   canvas_.setTextDatum(middle_center);
-  canvas_.drawString(String(index + 1) + "/" + String(count),
-                     kCodexSessionBadgeX + kCodexSessionBadgeWidth / 2,
-                     kCodexSessionBadgeY + kCodexSessionBadgeHeight / 2);
+  const String label = String(index + 1) + "/" + String(count);
+  const int centerX = kCodexSessionBadgeX + kCodexSessionBadgeWidth / 2;
+  const int centerY = kCodexSessionBadgeY + kCodexSessionBadgeHeight / 2;
+  canvas_.setTextColor(kBackground);
+  canvas_.drawString(label, centerX + 1, centerY + 1);
+  canvas_.setTextColor(TFT_WHITE);
+  canvas_.drawString(label, centerX, centerY);
   canvas_.setTextDatum(top_left);
 }
 
@@ -855,39 +856,529 @@ void DeviceUi::drawHint(const String& text) {
   canvas_.setTextDatum(top_left);
 }
 
-void DeviceUi::drawMain() {
-  constexpr int cardX = 4;
-  constexpr int cardY = 24;
-  constexpr int cardWidth = 108;
-  constexpr int cardHeight = 105;
-  const bool selected = mainSelection_ == 0;
+void DeviceUi::drawGameBackground() {
+  canvas_.fillSprite(kBackground);
+  for (int x = 15; x < kWidth; x += 46) {
+    canvas_.drawFastVLine(x, 19, kHeight - 19, kLine);
+  }
+  canvas_.drawFastHLine(0, 76, kWidth, kLine);
+  const int pulse = (millis() / 500) % 3;
+  canvas_.drawFastHLine(2 + pulse, 132, 52, kLine);
+  canvas_.drawFastHLine(185 - pulse, 132, 50, kLine);
+}
+
+void DeviceUi::drawAngularPanel(int x, int y, int width, int height,
+                                bool selected) {
   const uint16_t background = selected ? kPanelSelected : kPanel;
-  canvas_.fillRoundRect(cardX, cardY, cardWidth, cardHeight, 7, background);
-  if (selected) {
-    canvas_.drawRoundRect(cardX, cardY, cardWidth, cardHeight, 7, kAccent);
+  canvas_.fillRect(x + 2, y, width - 4, height, background);
+  canvas_.fillRect(x, y + 2, width, height - 4, background);
+  canvas_.drawRect(x + 2, y + 2, width - 4, height - 4, kLine);
+  const uint16_t edge = selected ? kAccent : kLine;
+  canvas_.drawFastHLine(x, y + 2, 7, edge);
+  canvas_.drawFastVLine(x, y + 2, 7, edge);
+  canvas_.drawFastHLine(x + width - 7, y + 2, 7, edge);
+  canvas_.drawFastVLine(x + width - 1, y + 2, 7, edge);
+  canvas_.drawFastHLine(x, y + height - 3, 7, edge);
+  canvas_.drawFastVLine(x, y + height - 8, 7, edge);
+  canvas_.drawFastHLine(x + width - 7, y + height - 3, 7, edge);
+  canvas_.drawFastVLine(x + width - 1, y + height - 8, 7, edge);
+}
+
+void DeviceUi::drawWorkshopStage(int x, int y, int width, int height,
+                                 PetVisualState state) {
+  canvas_.fillRect(x, y, width, height, kPanelDeep);
+  canvas_.drawRect(x, y, width, height, kLine);
+  canvas_.fillRect(x + 3, y + 3, width - 6, height * 42 / 100, kBackground);
+  const int horizon = y + height * 46 / 100;
+  canvas_.fillRect(x + 3, horizon, width - 6, y + height - horizon - 3,
+                   kPanel);
+  canvas_.drawFastHLine(x + 3, horizon + 8, width - 6, kLine);
+  canvas_.drawFastHLine(x + 3, horizon + 23, width - 6, kLine);
+  canvas_.drawLine(x + width / 2, horizon + 2, x + width / 2 - 14,
+                   y + height - 3, kLine);
+  canvas_.drawLine(x + width / 2, horizon + 2, x + width / 2 + 14,
+                   y + height - 3, kLine);
+  canvas_.fillRect(x + 5, horizon + 2, 15, 3, kLine);
+  canvas_.fillRect(x + width - 20, horizon + 2, 15, 3, kLine);
+  if (state == PetVisualState::Thinking || state == PetVisualState::Running) {
+    const int scanX = x + 5 + (millis() / 90) % max(1, width - 10);
+    canvas_.drawFastVLine(scanX, y + 4, height * 36 / 100, kAccent);
+  }
+}
+
+void DeviceUi::drawWorkshopMonitor(PetVisualState state, uint32_t now) {
+  constexpr int frameX = 7;
+  constexpr int frameY = 26;
+  constexpr int frameWidth = 42;
+  constexpr int frameHeight = 31;
+  constexpr int screenX = 11;
+  constexpr int screenY = 31;
+  constexpr int screenWidth = 34;
+  constexpr int screenHeight = 18;
+
+  uint16_t signalColor = kAccent;
+  if (state == PetVisualState::NeedsInput) {
+    signalColor = kAccentWarm;
+  } else if (state == PetVisualState::Ready) {
+    signalColor = kGood;
+  } else if (state == PetVisualState::Blocked ||
+             state == PetVisualState::Offline) {
+    signalColor = kBad;
+  } else if (state == PetVisualState::Idle) {
+    signalColor = kTextDim;
   }
 
-  pet_.draw(canvas_, codexVisualState(), 22, 25, millis());
+  // A wall-mounted terminal gives all motion a visible source instead of
+  // scattering decorative scan lines and particles across the room.
+  canvas_.fillRect(frameX + 3, frameY - 3, frameWidth - 6, 3, kLine);
+  canvas_.fillRect(frameX + 5, frameY + frameHeight, frameWidth - 10, 2,
+                   kPanelDeep);
+  canvas_.fillRoundRect(frameX, frameY, frameWidth, frameHeight, 4,
+                        kPanelDeep);
+  canvas_.drawRoundRect(frameX, frameY, frameWidth, frameHeight, 4, kLine);
+  canvas_.fillRect(frameX + frameWidth - 4, frameY + 7, 2, 12,
+                   blendRgb565(kPanelDeep, signalColor, 48));
+
+  const bool active = state == PetVisualState::Thinking ||
+                      state == PetVisualState::Running;
+  const int glowPhase = (now / 45) % 48;
+  const int glowTriangle = glowPhase <= 24 ? glowPhase : 48 - glowPhase;
+  const uint8_t glow = active ? 42 + glowTriangle : 32;
+  const uint16_t screenBackground =
+      blendRgb565(kBackground, signalColor, glow / 3);
+  canvas_.fillRoundRect(screenX, screenY, screenWidth, screenHeight, 2,
+                        screenBackground);
+  canvas_.drawRoundRect(screenX, screenY, screenWidth, screenHeight, 2,
+                        blendRgb565(kLine, signalColor, glow));
+
+  const int contentLeft = screenX + 3;
+  const int contentTop = screenY + 3;
+  const int contentWidth = screenWidth - 6;
+  const int contentHeight = screenHeight - 6;
+  if (active) {
+    // A scrolling telemetry waveform is contained inside the terminal and
+    // speeds up while Codex is running.
+    const int speed = state == PetVisualState::Running ? 70 : 120;
+    const int phase = (now / speed) % 12;
+    const int centerY = contentTop + contentHeight / 2;
+    int previousY = centerY;
+    for (int offset = 0; offset < contentWidth; ++offset) {
+      const int sample = (offset + phase) % 12;
+      int wave = 0;
+      if (sample == 2) wave = -1;
+      if (sample == 3) wave = -4;
+      if (sample == 4) wave = 3;
+      if (sample == 5) wave = 1;
+      const int y = centerY + wave;
+      if (offset > 0) {
+        canvas_.drawLine(contentLeft + offset - 1, previousY,
+                         contentLeft + offset, y, signalColor);
+      }
+      previousY = y;
+    }
+    const int meterWidth = 5 + (now / speed) % (contentWidth - 4);
+    canvas_.drawFastHLine(contentLeft, screenY + screenHeight - 3,
+                          meterWidth,
+                          blendRgb565(screenBackground, signalColor, 112));
+  } else if (state == PetVisualState::Ready) {
+    // Stable check mark: completed work should feel calm, not blink.
+    canvas_.drawLine(contentLeft + 6, contentTop + 5,
+                     contentLeft + 10, contentTop + 9, signalColor);
+    canvas_.drawLine(contentLeft + 10, contentTop + 9,
+                     contentLeft + 19, contentTop + 1, signalColor);
+    canvas_.drawLine(contentLeft + 6, contentTop + 6,
+                     contentLeft + 10, contentTop + 10, signalColor);
+  } else if (state == PetVisualState::NeedsInput) {
+    // A slow terminal cursor provides a deliberate prompt without random
+    // flashing pixels elsewhere in the scene.
+    canvas_.fillRect(contentLeft + 12, contentTop + 1, 3, 6, signalColor);
+    if ((now / 650) % 2 == 0) {
+      canvas_.fillRect(contentLeft + 12, contentTop + 9, 3, 2, signalColor);
+    }
+  } else if (state == PetVisualState::Blocked ||
+             state == PetVisualState::Offline) {
+    canvas_.drawLine(contentLeft + 8, contentTop + 2,
+                     contentLeft + 19, contentTop + 10, signalColor);
+    canvas_.drawLine(contentLeft + 19, contentTop + 2,
+                     contentLeft + 8, contentTop + 10, signalColor);
+  } else {
+    // Idle terminal: a recognizable power glyph, intentionally static.
+    canvas_.drawCircle(contentLeft + 14, contentTop + 6, 5, signalColor);
+    canvas_.drawFastVLine(contentLeft + 14, contentTop, 6, signalColor);
+    canvas_.drawPixel(contentLeft + 14, contentTop + 6, screenBackground);
+  }
+
+  canvas_.fillRect(frameX + frameWidth - 9, frameY + frameHeight - 4, 3, 2,
+                   signalColor);
+}
+
+void DeviceUi::drawWorkshopDataConduit(PetVisualState state, uint32_t now) {
+  // Twin channels are centered roughly ten pixels left of the original
+  // single conduit. The pet may occlude the left channel, which reinforces
+  // the intended foreground/background depth.
+  constexpr int frameX[] = {87, 99};
+  constexpr int frameY = 22;
+  constexpr int frameWidth = 10;
+  constexpr int frameHeight = 65;
+  constexpr int tubeY = 29;
+  constexpr int tubeWidth = 4;
+  constexpr int tubeHeight = 48;
+  constexpr int columnCount = sizeof(frameX) / sizeof(frameX[0]);
+
+  uint16_t signalColor = kAccent;
+  if (state == PetVisualState::NeedsInput) signalColor = kAccentWarm;
+  if (state == PetVisualState::Ready) signalColor = kGood;
+  if (state == PetVisualState::Blocked || state == PetVisualState::Offline) {
+    signalColor = kBad;
+  }
+  if (state == PetVisualState::Idle) signalColor = kTextDim;
+
+  const bool active = state == PetVisualState::Thinking ||
+                      state == PetVisualState::Running;
+  const int breathPhase = (now / 55) % 48;
+  const int breath = breathPhase <= 24 ? breathPhase : 48 - breathPhase;
+  const uint16_t tubeBackground =
+      blendRgb565(kBackground, signalColor, 18);
+
+  for (int column = 0; column < columnCount; ++column) {
+    const int x = frameX[column];
+    const int tubeX = x + 3;
+
+    canvas_.fillRect(x + 2, frameY - 3, frameWidth - 4, 3, kLine);
+    canvas_.fillRoundRect(x, frameY, frameWidth, frameHeight, 2,
+                          kPanelDeep);
+    canvas_.drawRoundRect(x, frameY, frameWidth, frameHeight, 2, kLine);
+    canvas_.fillRect(x + 2, frameY + 4, frameWidth - 4, 2, kPanel);
+    canvas_.fillRect(x + 2, frameY + frameHeight - 6,
+                     frameWidth - 4, 2, kPanel);
+    canvas_.fillRect(tubeX, tubeY, tubeWidth, tubeHeight, tubeBackground);
+    canvas_.drawRect(tubeX - 1, tubeY - 1, tubeWidth + 2, tubeHeight + 2,
+                     blendRgb565(kLine, signalColor, 42));
+    canvas_.drawFastHLine(x + 1, tubeY + 15, frameWidth - 2, kLine);
+    canvas_.drawFastHLine(x + 1, tubeY + 32, frameWidth - 2, kLine);
+
+    if (active) {
+      const int speed = state == PetVisualState::Running ? 68 : 108;
+      constexpr int packetHeight = 5;
+      constexpr int travel = tubeHeight - packetHeight;
+      constexpr int loopLength = travel + 15;
+      // The second channel trails the first so the pair feels like one machine
+      // with two data lanes rather than duplicated sprites.
+      const int phase = ((now / speed) + column * 9) % loopLength;
+      for (int packet = 0; packet < 3; ++packet) {
+        const int offset = (phase + packet * 19) % loopLength;
+        if (offset > travel) continue;
+        const int edgeFade = min(offset, travel - offset);
+        const uint8_t amount = min(176, 112 + max(0, edgeFade));
+        canvas_.fillRect(tubeX + 1, tubeY + offset, tubeWidth - 2,
+                         packetHeight,
+                         blendRgb565(tubeBackground, signalColor, amount));
+        canvas_.drawFastHLine(tubeX + 1, tubeY + offset, tubeWidth - 2,
+                              signalColor);
+      }
+    } else if (state == PetVisualState::Ready) {
+      // Fill once from top to bottom after entering Ready, then remain full.
+      // A vertical intensity gradient and a slow whole-column breath make
+      // success feel stored/complete instead of replaying a travelling cell.
+      constexpr uint32_t fillDurationMs = 1500;
+      constexpr uint32_t columnDelayMs = 140;
+      const uint32_t stateElapsed = now - codexEffectStateStartedMs_;
+      const uint32_t delay = column * columnDelayMs;
+      const uint32_t columnElapsed =
+          stateElapsed > delay ? stateElapsed - delay : 0;
+      const int filledRows = columnElapsed >= fillDurationMs
+                                 ? tubeHeight
+                                 : columnElapsed * tubeHeight / fillDurationMs;
+      const bool full = filledRows >= tubeHeight;
+      const int readyBreathPhase = full ? (columnElapsed / 55) % 64 : 0;
+      const int readyBreath = readyBreathPhase <= 32
+                                  ? readyBreathPhase
+                                  : 64 - readyBreathPhase;
+      const uint32_t maturityValue =
+          columnElapsed * 48 / fillDurationMs;
+      const int maturity = maturityValue > 48 ? 48 : maturityValue;
+      for (int row = 0; row < filledRows; ++row) {
+        const int verticalGradient = row * 54 / (tubeHeight - 1);
+        const int breathingBoost = full ? readyBreath * 3 / 2 : 0;
+        const uint8_t amount = min(220,
+            58 + maturity + verticalGradient + breathingBoost);
+        canvas_.drawFastHLine(tubeX, tubeY + row, tubeWidth,
+                              blendRgb565(tubeBackground, signalColor,
+                                          amount));
+      }
+      if (filledRows > 0 && !full) {
+        canvas_.drawFastHLine(tubeX, tubeY + filledRows - 1,
+                              tubeWidth, signalColor);
+      }
+    } else if (state == PetVisualState::NeedsInput) {
+      const int promptY = tubeY + tubeHeight / 2 - 5 + column * 4;
+      canvas_.fillRect(tubeX + 1, promptY, tubeWidth - 2, 7,
+                       blendRgb565(tubeBackground, signalColor,
+                                   92 + breath * 3));
+    } else if (state == PetVisualState::Blocked ||
+               state == PetVisualState::Offline) {
+      const int centerY = tubeY + tubeHeight / 2;
+      canvas_.drawLine(tubeX, centerY - 4, tubeX + tubeWidth - 1,
+                       centerY + 4, signalColor);
+      canvas_.drawLine(tubeX + tubeWidth - 1, centerY - 4, tubeX,
+                       centerY + 4, signalColor);
+    } else {
+      canvas_.fillRect(tubeX + 1, tubeY + tubeHeight - 5,
+                       tubeWidth - 2, 3,
+                       blendRgb565(tubeBackground, signalColor, 92));
+    }
+
+    canvas_.fillRect(x + 4, frameY + frameHeight - 4, 3, 2,
+                     signalColor);
+  }
+
+  // Both channels converge into one physical junction before entering the
+  // stage. These cables are drawn behind the pet by the scene ordering.
+  const uint8_t cableGlow = active ? 42 + breath * 2 : 30;
+  const uint16_t cableColor = blendRgb565(kLine, signalColor, cableGlow);
+  constexpr int junctionX = 103;
+  constexpr int junctionY = 98;
+  for (int column = 0; column < columnCount; ++column) {
+    const int portX = frameX[column] + frameWidth / 2;
+    canvas_.fillRect(portX - 1, frameY + frameHeight, 3, 5, kPanelDeep);
+    canvas_.drawFastVLine(portX, frameY + frameHeight, 7, cableColor);
+    canvas_.drawLine(portX, frameY + frameHeight + 6,
+                     junctionX, junctionY, cableColor);
+  }
+  canvas_.fillRoundRect(junctionX - 3, junctionY - 2, 7, 5, 2,
+                        kPanelDeep);
+  canvas_.drawRoundRect(junctionX - 3, junctionY - 2, 7, 5, 2,
+                        cableColor);
+  canvas_.drawLine(junctionX, junctionY + 3, 99, 108, cableColor);
+}
+
+void DeviceUi::drawCodexScene(PetVisualState state) {
+  // kPixels contains native uint16_t RGB565 words. M5GFX defaults uint16_t
+  // image input to byte-swapped RGB565 (the common wire/file representation),
+  // which turns the intended navy/cyan palette yellow on little-endian ESP32.
+  // Opt into native-word input only for this upload and restore the caller's
+  // setting so other canvas operations keep their existing behavior.
+  const bool previousSwapBytes = canvas_.getSwapBytes();
+  canvas_.setSwapBytes(true);
+  canvas_.pushImage(0, 0, ui_background_asset::kWidth,
+                    ui_background_asset::kHeight,
+                    ui_background_asset::kPixels);
+  canvas_.setSwapBytes(previousSwapBytes);
+  const uint32_t now = millis();
+
+  drawWorkshopMonitor(state, now);
+  drawWorkshopDataConduit(state, now);
+
+  // Grounding shadow stays behind the pet. The illuminated front lip is drawn
+  // later, after the pet, so the platform reads as a three-dimensional stage.
+  canvas_.fillEllipse(56, 112, 27, 4, kPanelDeep);
+}
+
+void DeviceUi::drawCodexPlatformEffect(PetVisualState state, uint32_t now) {
+  // The generated platform's visual center sits slightly right of the pet's
+  // nominal 100 px viewport center. Align the foreground energy with the art.
+  constexpr int centerX = 60;
+  constexpr int centerY = 110;
+  // Coarse points deliberately match the low-resolution pixel-art scene. Only
+  // the near half of the ellipse is represented; the rear half remains hidden
+  // behind the pet and platform top.
+  constexpr int8_t arcX[] = {
+      -42, -40, -36, -30, -22, -12, 0, 12, 22, 30, 36, 40, 42,
+  };
+  constexpr int8_t arcY[] = {
+      0, 3, 5, 7, 9, 10, 10, 10, 9, 7, 5, 3, 0,
+  };
+  constexpr int arcPointCount = sizeof(arcX) / sizeof(arcX[0]);
+
+  uint16_t platformColor = kAccent;
+  if (state == PetVisualState::NeedsInput) platformColor = kAccentWarm;
+  if (state == PetVisualState::Ready) platformColor = kGood;
+  if (state == PetVisualState::Blocked || state == PetVisualState::Offline) {
+    platformColor = kBad;
+  }
+
+  auto drawFrontArc = [&](int lift, uint16_t color) {
+    const uint16_t lowerEdge = blendRgb565(kBackground, color, 148);
+    for (int index = 1; index < arcPointCount; ++index) {
+      canvas_.drawLine(centerX + arcX[index - 1],
+                       centerY + arcY[index - 1] - lift,
+                       centerX + arcX[index],
+                       centerY + arcY[index] - lift, color);
+      canvas_.drawLine(centerX + arcX[index - 1],
+                       centerY + arcY[index - 1] - lift + 1,
+                       centerX + arcX[index],
+                       centerY + arcY[index] - lift + 1, lowerEdge);
+    }
+  };
+
+  auto drawFrontArcSegment = [&](int segment, int lift, uint16_t color) {
+    if (segment < 0 || segment >= arcPointCount - 1) return;
+    const uint16_t lowerEdge = blendRgb565(kBackground, color, 148);
+    canvas_.drawLine(centerX + arcX[segment],
+                     centerY + arcY[segment] - lift,
+                     centerX + arcX[segment + 1],
+                     centerY + arcY[segment + 1] - lift, color);
+    canvas_.drawLine(centerX + arcX[segment],
+                     centerY + arcY[segment] - lift + 1,
+                     centerX + arcX[segment + 1],
+                     centerY + arcY[segment + 1] - lift + 1, lowerEdge);
+  };
+
+  const bool platformActive = state == PetVisualState::Thinking ||
+                              state == PetVisualState::Running;
+  const int breathPhase = (now / 50) % 64;
+  const int breathTriangle =
+      breathPhase <= 32 ? breathPhase : 64 - breathPhase;
+  uint8_t baseGlow = 68;
+  if (platformActive) {
+    baseGlow = 58 + breathTriangle * 2;
+  } else if (state == PetVisualState::Idle) {
+    baseGlow = 48;
+  } else if (state == PetVisualState::Ready) {
+    baseGlow = 76;
+  } else if (state == PetVisualState::NeedsInput) {
+    baseGlow = 72;
+  }
+
+  if (platformActive) {
+    // Three evenly spaced energy layers rise from the near rim. Each layer
+    // fades as it climbs, and the shared breathing envelope keeps the loop
+    // soft instead of producing a flashing reset.
+    const int speed = state == PetVisualState::Running ? 72 : 105;
+    const int travelPhase = (now / speed) % 15;
+    for (int layer = 0; layer < 3; ++layer) {
+      const int lift = (travelPhase + layer * 5) % 15;
+      const int fade = 15 - lift;
+      const uint8_t amount =
+          min(144, 20 + fade * 5 + breathTriangle);
+      drawFrontArc(lift,
+                   blendRgb565(kBackground, platformColor, amount));
+    }
+  } else if (state == PetVisualState::NeedsInput) {
+    // One restrained amber layer breathes in place while waiting for input.
+    drawFrontArc(3, blendRgb565(kBackground, platformColor,
+                                56 + breathTriangle * 2));
+  } else if (state == PetVisualState::Ready) {
+    // Completion confirmation: highlights close from both sides, meet in the
+    // center, then release two calm green echoes upward. The four-second loop
+    // makes the result visible without turning Ready into constant motion.
+    const int readyPhase = (now / 80) % 52;
+    constexpr int segmentCount = arcPointCount - 1;
+    constexpr int halfSegments = segmentCount / 2;
+    if (readyPhase < 12) {
+      const int closedSegments = min(halfSegments, readyPhase / 2 + 1);
+      const uint16_t closeColor =
+          blendRgb565(kBackground, platformColor, 172);
+      for (int offset = 0; offset < closedSegments; ++offset) {
+        drawFrontArcSegment(offset, 0, closeColor);
+        drawFrontArcSegment(segmentCount - 1 - offset, 0, closeColor);
+      }
+    } else if (readyPhase < 28) {
+      const int lift = readyPhase - 12;
+      const uint8_t primaryAmount = max(36, 172 - lift * 7);
+      drawFrontArc(lift,
+                   blendRgb565(kBackground, platformColor, primaryAmount));
+      if (lift >= 5) {
+        const int secondLift = lift - 5;
+        const uint8_t secondaryAmount = max(30, 112 - secondLift * 6);
+        drawFrontArc(secondLift,
+                     blendRgb565(kBackground, platformColor,
+                                 secondaryAmount));
+      }
+      if (lift < 5) {
+        canvas_.drawFastVLine(centerX, centerY + 5 - lift, 4,
+                              blendRgb565(kBackground, platformColor,
+                                          136 - lift * 12));
+      }
+    }
+  }
+
+  // The solid front lip is drawn last. It hides the roots of the rising
+  // layers and sells the platform's foreground depth.
+  drawFrontArc(0,
+               blendRgb565(kBackground, platformColor, baseGlow));
+  for (int index = 4; index < arcPointCount - 4; ++index) {
+    canvas_.drawPixel(centerX + arcX[index],
+                      centerY + arcY[index] + 1,
+                      blendRgb565(kPanelDeep, platformColor,
+                                  max(24, baseGlow - 18)));
+  }
+}
+
+void DeviceUi::drawHomeStatusLine(int x, int y, int width,
+                                  PetVisualState state) {
+  canvas_.fillRect(x, y, width, 3, kBackground);
+  if (state == PetVisualState::Thinking || state == PetVisualState::Running) {
+    const int segmentWidth = state == PetVisualState::Running ? 24 : 16;
+    const int travel = width - segmentWidth;
+    const int speed = state == PetVisualState::Running ? 45 : 75;
+    const int step = (millis() / speed) % (travel * 2);
+    const int offset = step <= travel ? step : travel * 2 - step;
+    canvas_.fillRect(x + offset, y, segmentWidth, 3, kAccent);
+  } else if (state == PetVisualState::NeedsInput) {
+    const int promptWidth = (millis() / 320) % 2 == 0 ? width : width * 3 / 5;
+    canvas_.fillRect(x, y, promptWidth, 3, kAccentWarm);
+  } else if (state == PetVisualState::Blocked ||
+             state == PetVisualState::Offline) {
+    canvas_.fillRect(x, y, width, 3, kBad);
+  } else if (state == PetVisualState::Ready) {
+    canvas_.fillRect(x, y, width, 3, kGood);
+  } else {
+    canvas_.fillRect(x, y, 24, 3, kTextDim);
+  }
+}
+
+void DeviceUi::drawMain() {
+  const PetVisualState visual = codexVisualState();
+  drawAngularPanel(4, 24, 108, 105, mainSelection_ == 0);
+  drawWorkshopStage(9, 29, 98, 63, visual);
+  pet_.draw(canvas_, visual, 22, 25, millis());
+  canvas_.fillRect(9, 95, 98, 30, kPanelDeep);
+  canvas_.drawFastHLine(9, 95, 98, kLine);
+  canvas_.fillRect(13, 99, 3, 3, codexStatusColor());
   canvas_.setTextFont(1);
   canvas_.setTextSize(1);
-  canvas_.setTextDatum(middle_center);
-  canvas_.setTextColor(selected ? TFT_WHITE : kTextDim, background);
-  canvas_.drawString("Codex", cardX + cardWidth / 2, 104);
-  canvas_.fillCircle(13, 119, 3, codexStatusColor());
-  canvas_.setTextDatum(middle_left);
-  canvas_.drawString(clipped(codexPreviewStatus(), 13), 21, 119);
+  canvas_.setTextColor(TFT_WHITE, kPanelDeep);
   canvas_.setTextDatum(top_left);
+  canvas_.drawString("CODEX", 20, 97);
+  canvas_.setTextColor(codexStatusColor(), kPanelDeep);
+  canvas_.setTextDatum(top_right);
+  canvas_.drawString(codexStatusLabel(visual), 103, 97);
+  canvas_.setTextDatum(top_left);
+  drawHomeStatusLine(13, 116, 89, visual);
 
-  const String wifiValue = wifi_.connected()
-      ? clipped(wifi_.currentSsid(), 8) : String("offline");
-  const String computerValue = pairing_.connected()
-      ? String("online") : String(pairing_.pairedCount());
+  drawAngularPanel(118, 24, 58, 50, mainSelection_ == 1);
+  drawAngularPanel(179, 24, 57, 50, mainSelection_ == 2);
+  drawAngularPanel(118, 79, 58, 50, mainSelection_ == 3);
+  drawAngularPanel(179, 79, 57, 50, mainSelection_ == 4);
+
+  drawWifiStrengthIcon(139, 33, wifi_.rssi(),
+                       wifi_.connected() ? kGood : kBad, kLine);
+  canvas_.drawRect(199, 34, 16, 12, pairing_.connected() ? kGood : kTextDim);
+  canvas_.drawFastHLine(202, 49, 10, pairing_.connected() ? kGood : kTextDim);
+  canvas_.drawFastVLine(207, 46, 4, pairing_.connected() ? kGood : kTextDim);
+
+  canvas_.fillRect(141, 89, 12, 12, kAccentWarm);
+  canvas_.drawFastVLine(147, 84, 4, kAccentWarm);
+  canvas_.drawFastVLine(147, 102, 4, kAccentWarm);
+  canvas_.drawFastHLine(136, 95, 4, kAccentWarm);
+  canvas_.drawFastHLine(154, 95, 4, kAccentWarm);
+
+  const uint16_t sleepBackground = mainSelection_ == 4 ? kPanelSelected : kPanel;
+  constexpr uint16_t violet = 0x793B;
+  canvas_.fillCircle(207, 95, 10, violet);
+  canvas_.fillCircle(212, 91, 9, sleepBackground);
+
+  const int brightnessPercent = (settings_.brightness * 100 + 127) / 255;
   const String timeoutValue = settings_.screenTimeoutSec == 0
-      ? String("Never") : String(settings_.screenTimeoutSec) + "s";
-  drawHomeSettingRow(24, 0, "WiFi", wifiValue);
-  drawHomeSettingRow(51, 1, "Computers", computerValue);
-  drawHomeSettingRow(78, 2, "Brightness", String(settings_.brightness));
-  drawHomeSettingRow(105, 3, "Screen off", timeoutValue);
+      ? String("ON") : String(settings_.screenTimeoutSec) + "S";
+  canvas_.setTextDatum(middle_center);
+  canvas_.setTextColor(TFT_WHITE);
+  canvas_.drawString("WIFI", 147, 64);
+  canvas_.drawString("MAC", 207, 64);
+  canvas_.drawString(String(brightnessPercent) + "%", 147, 119);
+  canvas_.drawString(timeoutValue, 207, 119);
+  canvas_.setTextDatum(top_left);
 }
 
 void DeviceUi::drawHomeSettingRow(int y, uint8_t index, const String& text,
@@ -943,10 +1434,23 @@ uint16_t DeviceUi::codexStatusColor() const {
     case PetVisualState::NeedsInput: return kAccentWarm;
     case PetVisualState::Ready: return kGood;
     case PetVisualState::Blocked: return kBad;
-    case PetVisualState::Offline:
+    case PetVisualState::Offline: return kBad;
     case PetVisualState::Idle: return kTextDim;
   }
   return kTextDim;
+}
+
+const char* DeviceUi::codexStatusLabel(PetVisualState state) const {
+  switch (state) {
+    case PetVisualState::Offline: return "OFFLINE";
+    case PetVisualState::Idle: return "IDLE";
+    case PetVisualState::Thinking: return "THINKING";
+    case PetVisualState::Running: return "RUNNING";
+    case PetVisualState::NeedsInput: return "INPUT";
+    case PetVisualState::Ready: return "READY";
+    case PetVisualState::Blocked: return "BLOCK";
+  }
+  return "IDLE";
 }
 
 String DeviceUi::codexPreviewStatus() const {
@@ -967,7 +1471,7 @@ String DeviceUi::codexPreviewStatus() const {
 }
 
 void DeviceUi::drawQuotaRow(int y, const char* label, int remaining,
-                            uint16_t color, AgentQuotaMode mode) {
+                            AgentQuotaMode mode) {
   canvas_.setTextFont(1);
   canvas_.setTextSize(1);
   canvas_.setTextColor(mode == AgentQuotaMode::Unknown ? kTextDim : TFT_WHITE,
@@ -979,41 +1483,29 @@ void DeviceUi::drawQuotaRow(int y, const char* label, int remaining,
   constexpr int barHeight = 8;
   const int barY = y + (kCodexQuotaRowHeight - barHeight) / 2;
   canvas_.fillRoundRect(barX, barY, barWidth, barHeight, 2, kBackground);
+  uint16_t borderColor = kTextDim;
   if (mode == AgentQuotaMode::Api) {
-    constexpr size_t colorCount =
-        sizeof(kUnlimitedGradient) / sizeof(kUnlimitedGradient[0]);
-    constexpr int stopWidth = 12;
-    constexpr int gradientWidth = colorCount * stopWidth;
-    // One-pixel movement every 120ms gives the full gradient a roughly
-    // ten-second cycle. There is deliberately no sparkle/glint overlay.
-    const int phase = (millis() / 120) % gradientWidth;
-    const int innerWidth = barWidth - 2;
-    for (int column = 0; column < innerWidth; ++column) {
-      const int position = (phase + column) % gradientWidth;
-      const size_t colorIndex = position / stopWidth;
-      const size_t nextColor = (colorIndex + 1) % colorCount;
-      const uint8_t blend = static_cast<uint8_t>(
-          (position % stopWidth) * 255 / stopWidth);
-      const uint16_t color = blendRgb565(kUnlimitedGradient[colorIndex],
-                                         kUnlimitedGradient[nextColor], blend);
-      const uint16_t edge = blendRgb565(kBackground, color, 176);
-      canvas_.drawPixel(barX + 1 + column, barY + 1, edge);
-      canvas_.drawFastVLine(barX + 1 + column, barY + 2, barHeight - 4, color);
-      canvas_.drawPixel(barX + 1 + column, barY + barHeight - 2, edge);
-    }
-    // Draw two complete loops with a dark halo. This remains legible inside
-    // the compact row and cannot be vertically clipped like a font glyph.
-    const int centerX = barX + barWidth / 2;
-    const int centerY = barY + barHeight / 2;
-    canvas_.drawEllipse(centerX - 3, centerY, 5, 3, kBackground);
-    canvas_.drawEllipse(centerX + 3, centerY, 5, 3, kBackground);
-    canvas_.drawEllipse(centerX - 3, centerY, 4, 2, TFT_WHITE);
-    canvas_.drawEllipse(centerX + 3, centerY, 4, 2, TFT_WHITE);
+    // API-backed quotas are unmetered: a full static green rail communicates
+    // healthy capacity without a rainbow animation or infinity glyph.
+    const uint16_t railBody = blendRgb565(kBackground, kGood, 208);
+    const uint16_t railCenter = blendRgb565(kGood, TFT_WHITE, 36);
+    canvas_.fillRoundRect(barX + 1, barY + 1, barWidth - 2,
+                          barHeight - 2, 1, railBody);
+    canvas_.drawFastHLine(barX + 4, barY + barHeight / 2,
+                          barWidth - 8, railCenter);
+    borderColor = blendRgb565(kLine, kGood, 76);
   } else if (mode == AgentQuotaMode::Subscription && remaining >= 0) {
-    if (remaining > 0) {
-      const int fill = max(1, (barWidth - 2) * remaining / 100);
-      canvas_.fillRoundRect(barX + 1, barY + 1, fill, barHeight - 2, 1,
-                            color);
+    const uint16_t quotaColor = remaining < 10
+                                    ? kBad
+                                    : (remaining < 30 ? TFT_YELLOW : kGood);
+    const int clamped = min(100, max(0, remaining));
+    // Keep a one-pixel warning marker at zero so an exhausted quota does not
+    // become visually indistinguishable from an unknown/empty track.
+    const int fill = max(1, (barWidth - 2) * clamped / 100);
+    canvas_.fillRoundRect(barX + 1, barY + 1, fill, barHeight - 2, 1,
+                          quotaColor);
+    if (remaining < 30) {
+      borderColor = blendRgb565(kLine, quotaColor, 92);
     }
   } else {
     canvas_.setTextColor(kTextDim, kBackground);
@@ -1021,16 +1513,21 @@ void DeviceUi::drawQuotaRow(int y, const char* label, int remaining,
     canvas_.drawString("--", barX + barWidth / 2, barY + barHeight / 2);
     canvas_.setTextDatum(top_left);
   }
-  canvas_.drawRoundRect(barX, barY, barWidth, barHeight, 2, kTextDim);
+  canvas_.drawRoundRect(barX, barY, barWidth, barHeight, 2, borderColor);
 }
 
 void DeviceUi::drawCodex() {
   const AgentSession* agent = selectedAgent();
   const PetVisualState visual = codexVisualState();
+  const uint32_t now = millis();
+  if (visual != codexEffectState_) {
+    codexEffectState_ = visual;
+    codexEffectStateStartedMs_ = now;
+  }
   const uint16_t statusColor = codexStatusColor();
   String title = "Codex";
   String activity = pairing_.connected()
-      ? "Waiting for Codex sessions" : "CardBridge is offline";
+      ? "Waiting for Codex sessions" : "Codex Deck is offline";
   if (agent && pairing_.agentOnline()) {
     title = !agent->title.isEmpty() ? agent->title
                                    : (!agent->project.isEmpty() ? agent->project
@@ -1038,13 +1535,14 @@ void DeviceUi::drawCodex() {
     activity = agent->activity;
   }
 
-  // Final 1:1 layout: two 114px columns separated by four pixels.
-  canvas_.fillRoundRect(kCodexLeftX, kCodexPanelY, kCodexColumnWidth,
-                        kCodexPanelHeight, 7, kPanel);
-  canvas_.fillRoundRect(kCodexRightX, kCodexPanelY, kCodexColumnWidth,
-                        kCodexPanelHeight, 7, kPanel);
+  // The whole display is one generated game scene. Only the text/quota area
+  // on the right is a card; the pet stands directly on the background stage.
+  drawCodexScene(visual);
+  drawAngularPanel(kCodexRightX, kCodexPanelY, kCodexColumnWidth,
+                   kCodexPanelHeight, false);
 
-  pet_.draw(canvas_, visual, kCodexPetX, kCodexPetY, millis(), kCodexPetSize);
+  pet_.draw(canvas_, visual, kCodexPetX, kCodexPetY, now, kCodexPetSize);
+  drawCodexPlatformEffect(visual, now);
   drawKeyboardModeIcon(kCodexKeyboardX, kCodexKeyboardY);
   drawCodexSessionBadge(agentSelection_, pairing_.agentCount());
 
@@ -1063,10 +1561,10 @@ void DeviceUi::drawCodex() {
   AgentQuotaMode quotaMode = pairing_.agentOnline()
                                  ? pairing_.agentQuota().mode
                                  : AgentQuotaMode::Unknown;
-  drawQuotaRow(kCodexWeeklyY, "WEEKLY", pairing_.agentQuota().weeklyRemaining,
-               0xF9E7, quotaMode);
-  drawQuotaRow(kCodexFiveHourY, "5H", pairing_.agentQuota().fiveHourRemaining,
-               0x05FF, quotaMode);
+  drawQuotaRow(kCodexWeeklyY, "WEEKLY",
+               pairing_.agentQuota().weeklyRemaining, quotaMode);
+  drawQuotaRow(kCodexFiveHourY, "5H",
+               pairing_.agentQuota().fiveHourRemaining, quotaMode);
 }
 
 void DeviceUi::drawMenuRow(int y, bool selected, const String& text,
@@ -1168,7 +1666,7 @@ void DeviceUi::drawAddComputer() {
   }
   if (count == 0) {
     canvas_.setCursor(6, 60);
-    canvas_.print("Searching for CardBridge...");
+    canvas_.print("Searching for Codex Deck...");
   }
   drawHint("Tab rescan  Esc back");
 }
