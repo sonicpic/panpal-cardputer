@@ -7,6 +7,9 @@ from typing import Any
 
 from .protocol import AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME
 
+CARDBRIDGE_FEED_DEVICE = "CardBridge Microphone Feed"
+BLACKHOLE_DEVICE = "BlackHole 2ch"
+
 
 class JitterBuffer:
     """Small sequence-aware PCM jitter buffer with silence loss concealment."""
@@ -89,7 +92,7 @@ class NullAudioOutput:
 class BlackHoleAudioOutput(NullAudioOutput):
     def __init__(
         self,
-        device_name: str = "BlackHole 2ch",
+        device_name: str = CARDBRIDGE_FEED_DEVICE,
         target_ms: int = 100,
         gain: float = 20.0,
     ) -> None:
@@ -116,17 +119,29 @@ class BlackHoleAudioOutput(NullAudioOutput):
             ) from exc
 
         devices = sounddevice.query_devices()
-        candidates = [
-            (index, device)
-            for index, device in enumerate(devices)
-            if self.device_name.lower() in str(device["name"]).lower()
-            and int(device["max_output_channels"]) >= 2
-        ]
+        requested_names = [self.device_name]
+        # Existing users keep working while the bundled CardBridge driver has
+        # not been installed yet. Explicit custom device names do not silently
+        # fall back to a different destination.
+        if self.device_name == CARDBRIDGE_FEED_DEVICE:
+            requested_names.append(BLACKHOLE_DEVICE)
+        candidates = []
+        for requested_name in requested_names:
+            candidates = [
+                (index, device)
+                for index, device in enumerate(devices)
+                if requested_name.lower() in str(device["name"]).lower()
+                and int(device["max_output_channels"]) >= 2
+            ]
+            if candidates:
+                break
         if not candidates:
             raise RuntimeError(
-                f"output device '{self.device_name}' was not found; install BlackHole 2ch"
+                "audio output device was not found; install CardBridge Microphone "
+                f"or {BLACKHOLE_DEVICE}"
             )
         index, device = candidates[0]
+        self.device_name = str(device["name"])
         self.output_rate = float(device["default_samplerate"] or 48_000)
         self._numpy = numpy
         stream = sounddevice.OutputStream(

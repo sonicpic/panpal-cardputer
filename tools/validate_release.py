@@ -42,9 +42,22 @@ def main() -> int:
 
     executable = app / "Contents/MacOS/CardBridge"
     agent_executable = agent / "Contents/MacOS/CardBridgeAgent"
+    audio_driver = (
+        app
+        / "Contents/Resources/AudioDriver/CardBridgeMicrophone.driver"
+    )
+    driver_info = plistlib.loads((audio_driver / "Contents/Info.plist").read_bytes())
+    assert driver_info["CFBundleIdentifier"] == "com.voltwake.cardbridge.microphone.driver"
     assert "arm64" in run("lipo", "-archs", str(executable)).stdout.split()
     assert "arm64" in run("lipo", "-archs", str(agent_executable)).stdout.split()
+    driver_archs = run(
+        "lipo", "-archs", str(audio_driver / "Contents/MacOS/CardBridgeMicrophone")
+    ).stdout.split()
+    assert {"arm64", "x86_64"}.issubset(driver_archs)
     run("codesign", "--verify", "--deep", "--strict", str(app))
+    # Static signature validation did not catch ad-hoc library-validation
+    # mismatches between the PyInstaller executable and Python.framework.
+    run(str(agent_executable), "--help")
 
     signature = run("codesign", "-dvvv", str(app)).stderr
     if args.require_developer_id:
@@ -55,9 +68,16 @@ def main() -> int:
         run("xcrun", "stapler", "validate", str(app))
         run("spctl", "--assess", "--type", "execute", "--verbose=2", str(app))
 
+    if "Authority=Developer ID Application:" in signature:
+        signature_kind = "Developer ID"
+    elif "Authority=Apple Development:" in signature:
+        signature_kind = "Apple Development"
+    else:
+        signature_kind = "ad-hoc"
+
     print(
         f"Validated CardBridge {expected['version']} ({expected['build']}), "
-        f"arm64, signature={'Developer ID' if args.require_developer_id else 'local'}"
+        f"arm64, signature={signature_kind}"
     )
     return 0
 

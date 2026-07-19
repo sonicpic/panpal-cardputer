@@ -1,15 +1,15 @@
 # CardBridge Agent development and diagnostics
 
-The bridge advertises `_cardbridge._tcp` over mDNS, pairs Cardputers with a six-digit code, injects authenticated TCP key events with Quartz, writes authenticated UDP microphone audio into **BlackHole 2ch**, and publishes a privacy-trimmed view of local Codex sessions. Normal users run the bundled Agent through `CardBridge.app`; the Python commands below are for development and diagnostics.
+The bridge advertises `_cardbridge._tcp` over mDNS, pairs Cardputers with a six-digit code, injects authenticated TCP key events with Quartz, writes authenticated UDP microphone audio into **CardBridge Microphone Feed** (with **BlackHole 2ch** as a compatibility fallback), and publishes a privacy-trimmed view of local Codex sessions. Normal users run the bundled Agent through `CardBridge.app`; the Python commands below are for development and diagnostics.
 
-## 1. Install BlackHole and configure Typeless
+## 1. Install CardBridge Microphone and configure Typeless
 
-1. Download and install the **BlackHole 2ch** macOS package from [Existential Audio](https://existential.audio/blackhole/). Homebrew is not required.
-2. Open **Audio MIDI Setup** and confirm that `BlackHole 2ch` exists. Leave its format at a supported default such as 48,000 Hz; CardBridge resamples the Cardputer's 16 kHz stream in software.
-3. In Typeless, select `BlackHole 2ch` as the microphone and configure its hold-to-record shortcut as **F13** (the device default). The device setting can instead use F14–F16.
-4. For an independent check, open QuickTime Player → New Audio Recording and select `BlackHole 2ch` as the microphone.
+1. Launch `CardBridge.app` and approve its one-time `CardBridge Microphone` driver installation. The same action is available later in the menu and Settings → Audio.
+2. Open **Audio MIDI Setup** and confirm that input-only `CardBridge Microphone` and output-only `CardBridge Microphone Feed` exist at 48,000 Hz.
+3. In Typeless, select `CardBridge Microphone` as the microphone and configure its hold-to-record shortcut as **F13** (the device default). The device setting can instead use F14–F16.
+4. For an independent check, open QuickTime Player → New Audio Recording and select `CardBridge Microphone` as the microphone.
 
-The bridge writes to the BlackHole output side; Typeless and QuickTime read the same virtual device as an input. Do not create an Aggregate Device for this path.
+The bridge writes to the Feed device; Typeless and QuickTime read the paired input device. The driver reports the input as USB for compatibility with applications that filter `Virtual` transports, but it remains a software HAL plug-in rather than real UAC hardware. Do not create an Aggregate Device for this path. If the bundled driver is absent, the Agent automatically falls back to BlackHole 2ch.
 
 ## 2. Create the Python 3.10 environment
 

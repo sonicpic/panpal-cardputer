@@ -7,6 +7,7 @@ import signal
 import sys
 from pathlib import Path
 
+from .audio import CARDBRIDGE_FEED_DEVICE
 from .control_server import default_control_socket
 from .server import BridgeApp
 
@@ -16,9 +17,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--host", default="0.0.0.0")
     result.add_argument("--port", type=int, default=7788, help="TCP control port")
     result.add_argument("--udp-port", type=int, default=7789)
-    result.add_argument("--audio-device", default="BlackHole 2ch")
+    result.add_argument("--audio-device", default=CARDBRIDGE_FEED_DEVICE)
     result.add_argument("--jitter-ms", type=int, default=100)
-    result.add_argument("--gain", type=float, default=20.0, help="software make-up gain into BlackHole")
+    result.add_argument("--gain", type=float, default=20.0, help="software make-up gain into the microphone bridge")
     result.add_argument("--config", type=Path)
     result.add_argument("--no-audio", action="store_true", help="validate/drop audio without sound output")
     result.add_argument("--dry-run", action="store_true", help="log key events instead of injecting them")

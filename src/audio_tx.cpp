@@ -28,13 +28,18 @@ bool AudioTransmitter::begin(bool muted) {
   return captureOk == pdPASS && senderOk == pdPASS;
 }
 
+void AudioTransmitter::setActive(bool active) {
+  active_ = active;
+  if (!active && queue_) xQueueReset(queue_);
+}
+
 void AudioTransmitter::setMuted(bool muted) {
   muted_ = muted;
   if (muted && queue_) xQueueReset(queue_);
 }
 
 bool AudioTransmitter::streamingAllowed() const {
-  if (muted_) return false;
+  if (!active_ || muted_) return false;
   IPAddress ignoredIp;
   uint8_t ignoredToken[32];
   return pairing_.audioEndpoint(ignoredIp, ignoredToken);
@@ -250,7 +255,7 @@ void AudioTransmitter::senderLoop() {
     if (xQueueReceive(queue_, &frame, pdMS_TO_TICKS(100)) != pdPASS) continue;
     IPAddress ip;
     uint8_t token[32];
-    if (muted_ || !pairing_.audioEndpoint(ip, token)) continue;
+    if (!active_ || muted_ || !pairing_.audioEndpoint(ip, token)) continue;
     if (sendFrame(frame, ip, token)) {
       ++sent_;
     } else {

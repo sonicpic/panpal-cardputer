@@ -18,7 +18,11 @@ class AudioTransmitter {
   explicit AudioTransmitter(PairingManager& pairing) : pairing_(pairing) {}
 
   bool begin(bool muted);
+  // Remote keyboard mode owns the microphone. Keep this separate from the
+  // user's persistent mute preference so leaving Remote never clears mute.
+  void setActive(bool active);
   void setMuted(bool muted);
+  bool active() const { return active_; }
   bool muted() const { return muted_; }
   uint8_t level() const { return level_; }
   uint32_t droppedFrames() const { return droppedFrames_; }
@@ -60,6 +64,7 @@ class AudioTransmitter {
   TaskHandle_t senderTask_ = nullptr;
   i2s_chan_handle_t rxChannel_ = nullptr;
   WiFiUDP udp_;
+  volatile bool active_ = false;
   volatile bool muted_ = false;
   volatile uint8_t level_ = 0;
   volatile uint16_t rawPeak_ = 0;

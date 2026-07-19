@@ -12,3 +12,4 @@ macos/.deps/
 macos/dist/
 macos/App/icon-work/
 macos/App/CardBridge.icns
+driver/build/

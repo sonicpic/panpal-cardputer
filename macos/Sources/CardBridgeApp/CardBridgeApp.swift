@@ -4,9 +4,24 @@ import SwiftUI
 final class CardBridgeAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         LoginItemManager.registerDefaultIfNeeded()
+        // CardBridgeAgent is launched as a child of the main app, so macOS TCC
+        // attributes its synthetic keyboard events to CardBridge (the
+        // responsible process). The main app must therefore own the
+        // Accessibility request even though the Agent posts the events.
         AccessibilityPermission.requestIfNeeded()
-        AgentSupervisor.shared.start()
         UpdaterController.shared.start()
+        Task { @MainActor in
+            let defaults = UserDefaults.standard
+            let driver = MicrophoneDriverManager.shared
+            if !driver.isInstalled,
+               !defaults.bool(forKey: "didOfferMicrophoneDriverInstall") {
+                // Offer exactly once on first launch. Cancellation still lets
+                // the bridge start, and the menu/settings button remains.
+                defaults.set(true, forKey: "didOfferMicrophoneDriverInstall")
+                _ = await driver.install()
+            }
+            AgentSupervisor.shared.start()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

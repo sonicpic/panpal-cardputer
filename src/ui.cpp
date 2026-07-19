@@ -157,12 +157,18 @@ void DeviceUi::begin() {
   }
   canvas_.setTextFont(1);
   lastActivityMs_ = millis();
+  // Boot always lands in Local mode, so the microphone stays physically off
+  // until the user explicitly enables keyboard forwarding.
+  audio_.setActive(mode_ == UiMode::Remote);
   render();
 }
 
 void DeviceUi::setMode(UiMode mode) {
   if (mode_ == mode) return;
   mode_ = mode;
+  audio_.setActive(mode_ == UiMode::Remote);
+  Serial.printf("[ui] mode=%s mic_active=%d muted=%d\n", modeName(),
+                audio_.active(), audio_.muted());
   suppressUntilRelease_ = M5Cardputer.Keyboard.isPressed();
 }
 

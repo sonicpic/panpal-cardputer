@@ -84,7 +84,7 @@
 - **R2 本机模式自然键位(去 Fn 化)**:`;` `.` `,` `/`(丝印方向键)+ `ijkl` = 上下左右;`Enter`=确认;`` ` ``(ESC 位)=返回上一页。WiFi/电脑列表用单独 `Backspace` 忘记/删除;文本输入页用 `Backspace` 删字、ESC 取消;密码输入保留 Shift 大小写和符号。禁止要求 Fn 组合键。
 - **R3 消除闪屏**:全部 UI 改 M5Canvas 离屏渲染整帧后 pushSprite,禁止直接 fillScreen 重绘。
 - **R4 图形化界面**:主页左侧只保留 Codex 动态宠物卡片,右侧直接展示 WiFi、电脑、亮度、熄屏四个入口;不展示 Claude 或通用 `Setting` 占位卡。右侧入口点击后进入各自详情页。状态栏图形化(键盘模式图标/WiFi 信号格/连接点/电池);WiFi 列表用信号强度图标代替 RSSI 数字。
-- **R5 音频→Typeless 搁置**:Typeless 只认真实硬件麦克风(实测其列表过滤虚拟声卡,BlackHole 不出现)。WiFi→BlackHole 链路保留(通用场景可用)。未来方向:UAC USB 麦克风(有线),或第二块 ESP32-S3 做 USB dongle 接收器(无线,仿 DJI 架构)。用户暂用 DJI Mic。
+- **R5 CardBridge Microphone 已验证**:Typeless 会过滤 `Virtual` transport，因此 BlackHole 不出现。CardBridge 现内置独立 GPLv3 HAL 驱动：公开设备为 input-only `CardBridge Microphone`，内部写入端为 output-only `CardBridge Microphone Feed`，并用 USB transport 声明通过 Typeless 当前版本的筛选。`system_profiler`、PortAudio 端到端回环和 Typeless 实时电平已验证；它仍是软件兼容层，不等同真实 UAC 硬件，未来 Typeless 若改为检查 IOKit 节点仍需 USB dongle。
 
 ### 3.6 Codex 宠物页定稿(2026-07-16)
 

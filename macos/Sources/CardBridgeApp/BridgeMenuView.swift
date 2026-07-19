@@ -3,6 +3,7 @@ import SwiftUI
 
 struct BridgeMenuView: View {
     @ObservedObject var client: AgentClient
+    @ObservedObject private var microphoneDriver = MicrophoneDriverManager.shared
 
     private var connectedDevice: BridgeSnapshot.Device? {
         client.snapshot.devices.first
@@ -24,6 +25,20 @@ struct BridgeMenuView: View {
 
             Divider()
             healthRows
+            if !microphoneDriver.isInstalled {
+                Button {
+                    Task {
+                        if await microphoneDriver.install() {
+                            client.restartAgent()
+                        }
+                    }
+                } label: {
+                    Label("启用 CardBridge 麦克风…", systemImage: "mic.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(microphoneDriver.isBusy)
+            }
             if !client.snapshot.permissions.accessibility {
                 Button {
                     SystemSettings.openAccessibility()
@@ -148,7 +163,7 @@ struct BridgeMenuView: View {
             )
             HealthRow(
                 title: L10n.text("麦克风桥接"),
-                detail: client.snapshot.audio.device ?? L10n.text("BlackHole 不可用"),
+                detail: client.snapshot.audio.device ?? L10n.text("CardBridge 麦克风不可用"),
                 symbol: "waveform",
                 healthy: client.snapshot.audio.running
             )

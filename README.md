@@ -16,7 +16,7 @@ ditto macos/dist/CardBridge.app /Applications/CardBridge.app
 open /Applications/CardBridge.app
 ```
 
-On first launch, enable `CardBridge` in **System Settings → Privacy & Security → Accessibility** for keyboard forwarding. The native App requests this permission before starting its bundled Agent so the correct item is registered. Install BlackHole 2ch for microphone bridging. Existing `~/.cardbridge` identity and pairing data are migrated without re-pairing; pairing secrets move to the macOS Keychain.
+On first launch, CardBridge offers to install its bundled `CardBridge Microphone` HAL driver with one macOS administrator prompt, then requests **System Settings → Privacy & Security → Accessibility** for keyboard forwarding. The microphone publishes an input-only USB-compatible Core Audio device and a separate output-only feed used by the Agent; an existing BlackHole 2ch installation remains a fallback. Existing `~/.cardbridge` identity and pairing data are migrated without re-pairing; pairing secrets move to the macOS Keychain.
 
 The menu shows live M5, protocol, local-network, Accessibility, audio, and Codex health. Settings manages login launch, audio gain, paired devices, Codex Hooks, automatic updates, and redacted diagnostics.
 

@@ -114,7 +114,7 @@ def uninstall() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install/uninstall CardBridge LaunchAgent")
     parser.add_argument("action", choices=("install", "uninstall"))
-    parser.add_argument("--audio-device", default="BlackHole 2ch")
+    parser.add_argument("--audio-device", default="CardBridge Microphone Feed")
     parser.add_argument("--gain", type=float, default=20.0)
     parser.add_argument("--hook-port", type=int, default=7790)
     parser.add_argument("--no-audio", action="store_true")

@@ -2,6 +2,14 @@
 
 `GOAL.md` remains the product source of truth. This file records the repeatable development checks and the physical acceptance sequence for the Codex/user workflow.
 
+## 2026-07-18 CardBridge Microphone compatibility validation
+
+- Built the GPLv3-derived HAL plug-in as one signed universal `arm64`/`x86_64` bundle with unique CardBridge identity and branding.
+- Installed it into `/Library/Audio/Plug-Ins/HAL`: `system_profiler` reports input-only `CardBridge Microphone` and output-only `CardBridge Microphone Feed`, both with manufacturer `Voltwake` and transport `USB`; the existing BlackHole remains `Virtual`.
+- A 48 kHz 997 Hz feed-to-input loopback measured RMS `0.070716` and peak `0.100000` for a `0.1` source.
+- Typeless 2.0.1 lists `CardBridge Microphone` beside DJI MIC MINI while continuing to hide BlackHole. Selecting it and injecting a test signal drove Typeless's live input meter to full blue, confirming that the app opened and consumed the stream.
+- `61` Python tests, `4` Swift tests, the universal driver build, and the Cardputer PlatformIO firmware build pass.
+
 ## Development checks (safe without hardware)
 
 ```sh

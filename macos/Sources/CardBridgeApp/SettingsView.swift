@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var client: AgentClient
+    @ObservedObject private var microphoneDriver = MicrophoneDriverManager.shared
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError = ""
     @State private var gain = 1.0
@@ -39,7 +40,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Text("请在列表中允许 CardBridgeAgent；该权限只用于把 M5 按键发送到 Mac。")
+                Text("请在列表中允许 CardBridge；该权限只用于把 M5 按键发送到 Mac。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -61,6 +62,40 @@ struct SettingsView: View {
                     "输出设备",
                     value: client.snapshot.audio.device ?? L10n.text("不可用")
                 )
+                LabeledContent("CardBridge 麦克风") {
+                    HStack {
+                        Text(
+                            microphoneDriver.isInstalled
+                                ? L10n.text("已安装 · USB 兼容模式")
+                                : L10n.text("未安装")
+                        )
+                        Button(
+                            microphoneDriver.isInstalled
+                                ? L10n.text("移除")
+                                : L10n.text("安装…")
+                        ) {
+                            Task {
+                                let changed = microphoneDriver.isInstalled
+                                    ? await microphoneDriver.uninstall()
+                                    : await microphoneDriver.install()
+                                if changed { client.restartAgent() }
+                            }
+                        }
+                        .disabled(microphoneDriver.isBusy)
+                    }
+                }
+                if microphoneDriver.isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                if !microphoneDriver.message.isEmpty {
+                    Text(microphoneDriver.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("首次安装需要管理员授权。USB 兼容模式只改变 Core Audio 的设备声明，不代表真实 USB 硬件。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Codex") {
@@ -143,7 +178,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        .frame(width: 560, height: 600)
+        .frame(width: 560, height: 680)
         .onAppear {
             gain = client.snapshot.audio.gain
             automaticUpdates = UpdaterController.shared.automaticallyChecksForUpdates

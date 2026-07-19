@@ -1,3 +1,11 @@
+# CardBridge 1.1.0
+
+- 内置 `CardBridge Microphone` HAL 驱动，首次启动一次授权即可安装。
+- 麦克风以 input-only USB 兼容设备提供给 Typeless，CardBridge 通过独立 Feed 写入，避免 BlackHole 路由回放冲突。
+- Cardputer 切入键盘模式时才启动麦克风，退出后立即停止采集和传输。
+- 保留 BlackHole 作为未安装新驱动时的兼容回退。
+- Accessibility 只由实际注入按键的 CardBridgeAgent 请求，避免主 App 显示已授权而 Agent 仍被拒绝。
+
 # CardBridge 1.0.0 RC
 
 - 新增原生 macOS 菜单栏 App，启动后自动桥接 Cardputer ADV。

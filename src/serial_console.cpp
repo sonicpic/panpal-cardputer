@@ -233,13 +233,14 @@ void SerialConsole::printStatus() {
                 M5Cardputer.BtnA.isPressed());
   Serial.printf(
       "[status] wifi=%d ssid=\"%s\" ip=%s rssi=%d link=%s mac=\"%s\" "
-      "paired=%u muted=%d level=%u dropped=%u heap=%u fw=%s/%lu proto=%u.%u "
+      "paired=%u mic_active=%d muted=%d level=%u dropped=%u heap=%u "
+      "fw=%s/%lu proto=%u.%u "
       "bridge=%s/%lu bridge_proto=%u.%u incompat=\"%s\" required_fw=%s\n",
       wifi_.connected(), wifi_.currentSsid().c_str(),
       wifi_.localIp().toString().c_str(), wifi_.rssi(),
       linkStateName(pairing_.state()),
       pairing_.connectedName().c_str(), pairing_.pairedCount(),
-      audio_.muted(), audio_.level(), audio_.droppedFrames(),
+      audio_.active(), audio_.muted(), audio_.level(), audio_.droppedFrames(),
       ESP.getFreeHeap(), kFirmwareVersion,
       static_cast<unsigned long>(kFirmwareBuild), kDeviceProtocolMajor,
       kDeviceProtocolMinor, pairing_.bridgeVersion().c_str(),

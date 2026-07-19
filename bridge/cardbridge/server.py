@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .agents import AgentStore
-from .audio import BlackHoleAudioOutput, NullAudioOutput
+from .audio import CARDBRIDGE_FEED_DEVICE, BlackHoleAudioOutput, NullAudioOutput
 from .codex_monitor import CodexMonitor, start_hook_receiver
 from .codex_hooks import hooks_installed, update_hooks
 from .config import BridgeConfig
@@ -60,7 +60,7 @@ class BridgeApp:
         tcp_port: int = 7788,
         udp_port: int = 7789,
         config_path: Path | None = None,
-        audio_device: str = "BlackHole 2ch",
+        audio_device: str = CARDBRIDGE_FEED_DEVICE,
         jitter_ms: int = 100,
         gain: float = 20.0,
         no_audio: bool = False,
@@ -78,7 +78,7 @@ class BridgeApp:
         self.config = BridgeConfig(config_path)
         self.keyboard = KeyInjector(dry_run=dry_run)
         # Diagnostic tap: raw device PCM (pre-jitter) straight to a WAV file so
-        # the mic->UDP->bridge path can be verified without BlackHole/Typeless.
+        # the mic->UDP->bridge path can be verified without a loopback driver.
         self._record_path = record_path
         self._record_bytes = bytearray()
         self.audio = (
