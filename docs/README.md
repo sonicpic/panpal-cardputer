@@ -10,6 +10,9 @@ These are the current documents an installer or AI agent should use:
   build outputs.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — current process and data-flow model.
 - [`PROTOCOL.md`](PROTOCOL.md) — device, audio, and local control contracts.
+- [`DEVICE_UI.md`](DEVICE_UI.md) / [`简体中文`](DEVICE_UI.zh-CN.md) —
+  home/detail screenshots, visual states, user-facing copy, quota styles, and
+  controls.
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — diagnosis and recovery.
 - [`REPOSITORY_SETTINGS.md`](REPOSITORY_SETTINGS.md) — GitHub controls that
   cannot be configured from a checkout.

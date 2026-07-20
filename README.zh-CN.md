@@ -26,6 +26,23 @@ Codex Deck 不是 OpenAI 官方产品，也不代表 OpenAI 官方背书。
 - **安全且适合自动化：**使用配对、局域网认证、钥匙串密钥、可复现构建、
   机器可读安装元数据、健康检查和端到端测试，AI 编程 Agent 可以自行执行。
 
+## 界面截图
+
+<table>
+  <tr>
+    <td align="center"><strong>主页</strong></td>
+    <td align="center"><strong>Codex 详情页</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/device-home.png" alt="选中 Codex 卡片的 Cardputer 主页"></td>
+    <td><img src="docs/images/codex-detail.png" alt="工具运行中的 Codex 详情页"></td>
+  </tr>
+</table>
+
+这两张 4 倍图由当前固件布局和安全示例文案确定性生成。完整的七种视觉状态、
+对应标签与常见文案、空状态、额度样式及重新生成命令见
+[`docs/DEVICE_UI.zh-CN.md`](docs/DEVICE_UI.zh-CN.md)。
+
 ## 文档
 
 安装与开发文档从 [`docs/README.md`](docs/README.md) 开始。产品要求和历史

@@ -21,6 +21,7 @@ if [[ ! -x "${tool_venv}/bin/python" ]]; then
 fi
 "${tool_venv}/bin/python" -m pip install --disable-pip-version-check \
   "platformio==6.1.19"
+"${root_dir}/macos/scripts/bootstrap_sparkle.sh"
 
 print "CardBridge development environment is ready."
 print "Next: ${root_dir}/scripts/test.sh"

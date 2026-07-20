@@ -28,6 +28,24 @@ upgrade without being recreated.
   Keychain-backed secrets, reproducible builds, machine-readable setup metadata,
   health checks, and end-to-end tests that an AI coding agent can run.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><strong>Home</strong></td>
+    <td align="center"><strong>Codex detail</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/device-home.png" alt="Cardputer home screen with the Codex card selected"></td>
+    <td><img src="docs/images/codex-detail.png" alt="Codex detail screen while a tool is running"></td>
+  </tr>
+</table>
+
+These deterministic 4× previews use the current firmware layout and safe
+example text. See [`docs/DEVICE_UI.md`](docs/DEVICE_UI.md) for all seven visual
+states, their exact labels and typical copy, empty states, quota styles, and the
+regeneration command.
+
 ## Documentation
 
 Installation and development documentation starts at
