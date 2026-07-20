@@ -33,6 +33,7 @@ def main() -> int:
 
     expected = versions["mac_app"]
     assert app_info["CFBundleIdentifier"] == "com.voltwake.cardbridge"
+    assert app_info["CFBundleDisplayName"] == "Codex Deck"
     assert agent_info["CFBundleIdentifier"] == "com.voltwake.cardbridge.agent"
     assert app_info["CFBundleShortVersionString"] == expected["version"]
     assert int(app_info["CFBundleVersion"]) == expected["build"]

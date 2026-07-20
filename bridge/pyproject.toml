@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cardbridge"
 dynamic = ["version"]
-description = "Mac bridge for the M5Stack Cardputer ADV wireless microphone and keyboard"
+description = "Internal bridge agent for the Codex Deck Cardputer ADV companion"
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.24",

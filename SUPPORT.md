@@ -1,4 +1,4 @@
-# Support
+# Codex Deck support
 
 For installation problems, first run:
 
@@ -8,7 +8,7 @@ For installation problems, first run:
 ```
 
 Then consult [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Include the
-doctor output, CardBridge version, macOS version, CPU architecture, and
+doctor output, Codex Deck version, macOS version, CPU architecture, and
 whether a Cardputer is connected. Redact pairing codes, tokens, Wi-Fi names
 if sensitive, paths containing personal data, and Codex content.
 

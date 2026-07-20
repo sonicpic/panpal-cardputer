@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleDisplayName</key>
-    <string>CardBridge</string>
+    <string>Codex Deck</string>
     <key>CFBundleExecutable</key>
     <string>CardBridge</string>
     <key>CFBundleIdentifier</key>
@@ -33,7 +33,7 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>CardBridge 需要在局域网中发现并连接你的 Cardputer。</string>
+    <string>Codex Deck 需要在局域网中发现并连接你的 Cardputer。</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUFeedURL</key>

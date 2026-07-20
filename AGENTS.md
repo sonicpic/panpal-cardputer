@@ -1,4 +1,9 @@
-# Agent instructions for CardBridge
+# Agent instructions for Codex Deck
+
+Codex Deck is the public product name. `CardBridge` is the current internal
+compatibility name for the App, Agent, Python package, protocol, and audio
+devices. Follow [`docs/BRANDING.md`](docs/BRANDING.md) before renaming any
+technical identifier.
 
 ## Read first
 
@@ -29,7 +34,7 @@ parse the result. Commands are safe to rerun unless explicitly named
 
 ## Permission boundaries
 
-An agent may prepare, build, verify, and launch CardBridge. It must stop and
+An agent may prepare, build, verify, and launch Codex Deck. It must stop and
 ask the user to approve macOS administrator, Accessibility, Local Network,
 Microphone, Keychain, or Codex Hook trust prompts. Never bypass a consent
 dialog, scrape a password, or disable Gatekeeper.

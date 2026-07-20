@@ -26,6 +26,7 @@ def main() -> int:
     versions = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
     manifest = {
         "schema": 1,
+        "product": "Codex Deck",
         "release": versions["release"],
         "artifacts": [
             {

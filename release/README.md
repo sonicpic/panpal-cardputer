@@ -1,4 +1,4 @@
-# CardBridge 发布
+# Codex Deck 发布
 
 `compatibility.json` 由根目录 `version.json` 生成；`appcast.xml` 是 Sparkle 稳定更新源。
 

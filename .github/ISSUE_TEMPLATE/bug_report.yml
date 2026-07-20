@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible CardBridge problem
+description: Report a reproducible Codex Deck problem
 title: "[Bug]: "
 labels: [bug]
 body:
@@ -9,7 +9,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: CardBridge version and build
+      label: Codex Deck version and build
       placeholder: 1.1.0 (9)
     validations:
       required: true

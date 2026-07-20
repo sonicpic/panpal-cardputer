@@ -60,5 +60,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             macos/dist/release-"$version"/* \
             --draft \
-            --title "CardBridge $version" \
+            --title "Codex Deck $version" \
             --notes-file release/RELEASE_NOTES.md

@@ -67,7 +67,7 @@ struct BridgeMenuView: View {
             .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("CardBridge")
+                Text("Codex Deck")
                     .font(.headline)
                 Text(statusTitle)
                     .font(.subheadline)

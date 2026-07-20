@@ -7,7 +7,7 @@ Cardputer ADV firmware (ESP32-S3)
   └─ UDP 7789: authenticated 16 kHz PCM16 audio frames
                  │ local network
                  ▼
-CardBridge.app (SwiftUI menu bar process)
+Codex Deck (`CardBridge.app`, SwiftUI menu bar process)
   └─ supervised CardBridgeAgent (bundled Python runtime)
        ├─ Bonjour discovery and pairing
        ├─ Quartz keyboard injection

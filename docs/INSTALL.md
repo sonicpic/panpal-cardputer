@@ -1,6 +1,6 @@
-# Install CardBridge
+# Install Codex Deck
 
-CardBridge has two supported installation paths. Use the prebuilt release for
+Codex Deck has two supported installation paths. Use the prebuilt release for
 normal use; build from source only when developing or when no release artifact
 supports your Mac.
 
@@ -35,11 +35,11 @@ GitHub API.
 7. If macOS asks for Local Network access, allow it so Bonjour can discover the
    Cardputer.
 8. On the Cardputer, open **Computers → Add new computer** and enter the
-   six-digit code shown by CardBridge.
+   six-digit code shown by Codex Deck.
 9. In Typeless, select `CardBridge Microphone` as the microphone and use F13
    (or the configured F14–F16 key) for hold-to-record.
 
-The App stores pairing secrets in the macOS Keychain and starts its supervised
+The Codex Deck App (currently shipped as `CardBridge.app`) stores pairing secrets in the macOS Keychain and starts its supervised
 Bridge Agent automatically. It does not require Python, a virtual environment,
 or a terminal.
 

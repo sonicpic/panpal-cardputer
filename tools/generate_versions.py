@@ -153,7 +153,7 @@ def _info_plist(data: dict[str, Any]) -> str:
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleDisplayName</key>
-    <string>CardBridge</string>
+    <string>Codex Deck</string>
     <key>CFBundleExecutable</key>
     <string>CardBridge</string>
     <key>CFBundleIdentifier</key>
@@ -181,7 +181,7 @@ def _info_plist(data: dict[str, Any]) -> str:
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>CardBridge 需要在局域网中发现并连接你的 Cardputer。</string>
+    <string>Codex Deck 需要在局域网中发现并连接你的 Cardputer。</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUFeedURL</key>
@@ -203,7 +203,7 @@ def _agent_info_plist(data: dict[str, Any]) -> str:
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleDisplayName</key>
-    <string>CardBridgeAgent</string>
+    <string>Codex Deck Agent</string>
     <key>CFBundleExecutable</key>
     <string>CardBridgeAgent</string>
     <key>CFBundleIdentifier</key>
@@ -227,7 +227,7 @@ def _agent_info_plist(data: dict[str, Any]) -> str:
         <string>_cardbridge._tcp</string>
     </array>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>CardBridge Agent 需要在局域网中发现并连接你的 Cardputer。</string>
+    <string>Codex Deck Agent 需要在局域网中发现并连接你的 Cardputer。</string>
 </dict>
 </plist>
 '''

@@ -1,6 +1,32 @@
-# CardBridge for Cardputer ADV
+# Codex Deck
 
-CardBridge turns an M5Stack Cardputer ADV into a WiFi microphone, keyboard, and Codex session companion for macOS. The firmware streams authenticated 16 kHz PCM audio and explicit key down/up events to the companion service in `bridge/`; its Codex page shows the latest user-focused task, animated state, and up to eight switchable sessions. ChatGPT OAuth shows real weekly/5-hour subscription limits; API key and custom-provider modes show compact animated unlimited bars, while an indeterminate account state remains gray. The device UI is deliberately Codex-only and does not expose an unsupported Claude entry.
+> **Codex Deck** is an independent pocket hardware companion for OpenAI Codex,
+> turning the M5Stack Cardputer ADV into a wireless keyboard, microphone, and
+> live agent-status display for macOS.
+
+## 中文简介
+
+**Codex Deck** 是一个面向 OpenAI Codex 的独立开源硬件伴侣。它把
+M5Stack Cardputer ADV 变成 macOS 上的无线键盘、无线麦克风和实时 Agent
+状态屏：设备通过 Wi-Fi 发送经过认证的按键与 16 kHz 音频，并显示最近的
+Codex 会话、任务状态和宠物动画。
+
+当前 1.x 版本的 macOS 安装包和内部桥接服务仍保留 `CardBridge` 技术名，
+以保证已有配对、权限和音频设置可以平滑升级。Codex Deck 是独立项目，
+不代表 OpenAI 官方产品或背书。
+
+## English introduction
+
+**Codex Deck** is an independent open-source hardware companion for OpenAI
+Codex. It turns the M5Stack Cardputer ADV into a wireless keyboard, wireless
+microphone, and live agent-status display for macOS. The device sends
+authenticated key events and 16 kHz PCM audio over Wi-Fi and shows recent Codex
+sessions, task state, and an animated pet.
+
+The current 1.x macOS package and bridge retain the internal `CardBridge`
+compatibility name so existing pairings, permissions, and audio settings can
+upgrade without being recreated. Codex Deck is not an official OpenAI product
+and is not endorsed by OpenAI.
 
 Current installation and development instructions start at
 [`docs/README.md`](docs/README.md). Product requirements and historical
@@ -9,7 +35,7 @@ path.
 
 ## Install a release
 
-Normal users should download the signed/notarized App and matching firmware
+Normal users should download the signed/notarized Codex Deck App and matching firmware
 from GitHub Releases. Verify `SHA256SUMS`, move `CardBridge.app` to
 `/Applications`, launch it, and follow the one-time macOS permission prompts.
 The complete flow is in [`docs/INSTALL.md`](docs/INSTALL.md).
@@ -17,13 +43,16 @@ The complete flow is in [`docs/INSTALL.md`](docs/INSTALL.md).
 From a checkout, `./scripts/install-release.sh` performs the download,
 checksum verification, DMG mount, and App installation automatically.
 
-The current packaged target is Apple Silicon on macOS 13 or newer. CardBridge
+The current packaged target is Apple Silicon on macOS 13 or newer. Codex Deck
 requires a Cardputer ADV on a 2.4 GHz Wi-Fi network. Installing the Mac App and
 flashing the Cardputer firmware are separate operations.
 
-## Use the Mac menu bar app
+## Use the Codex Deck macOS menu bar app
 
-`CardBridge.app` is the normal Mac entry point. It bundles its own signed Bridge Agent, starts bridging immediately, appears only in the menu bar, reconnects paired M5 devices automatically, and does not require Python, a virtual environment, or a terminal.
+`CardBridge.app` is the current internal bundle name for Codex Deck. It bundles
+its own signed Bridge Agent, starts bridging immediately, appears only in the
+menu bar, reconnects paired M5 devices automatically, and does not require
+Python, a virtual environment, or a terminal.
 
 For a source build on Apple Silicon:
 
@@ -36,7 +65,7 @@ For a source build on Apple Silicon:
 ./scripts/healthcheck.sh
 ```
 
-On first launch, CardBridge offers to install its bundled `CardBridge Microphone` HAL driver with one macOS administrator prompt, then requests **System Settings → Privacy & Security → Accessibility** for keyboard forwarding. The microphone publishes an input-only USB-compatible Core Audio device and a separate output-only feed used by the Agent; an existing BlackHole 2ch installation remains a fallback. Existing `~/.cardbridge` identity and pairing data are migrated without re-pairing; pairing secrets move to the macOS Keychain.
+On first launch, Codex Deck (`CardBridge.app`) offers to install its bundled `CardBridge Microphone` HAL driver with one macOS administrator prompt, then requests **System Settings → Privacy & Security → Accessibility** for keyboard forwarding. The microphone publishes an input-only USB-compatible Core Audio device and a separate output-only feed used by the Agent; an existing BlackHole 2ch installation remains a fallback. Existing `~/.cardbridge` identity and pairing data are migrated without re-pairing; pairing secrets move to the macOS Keychain.
 
 The menu shows live M5, protocol, local-network, Accessibility, audio, and Codex health. Settings manages login launch, audio gain, paired devices, Codex Hooks, automatic updates, and redacted diagnostics.
 

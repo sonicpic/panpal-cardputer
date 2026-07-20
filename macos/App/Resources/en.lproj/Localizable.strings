@@ -38,13 +38,13 @@
 "诊断包已导出；未包含配置文件或配对 token。" = "Diagnostics exported without configuration files or pairing tokens.";
 "导出失败：%@" = "Export Failed: %@";
 "常规" = "General";
-"登录后自动启动 CardBridge" = "Open CardBridge at Login";
+"登录后自动启动 Codex Deck" = "Open Codex Deck at Login";
 "本机名称" = "Mac Name";
 "局域网地址" = "Local Network Address";
 "权限" = "Permissions";
 "已授权" = "Granted";
 "打开系统设置…" = "Open System Settings…";
-"请在列表中允许 CardBridgeAgent；该权限只用于把 M5 按键发送到 Mac。" = "Allow CardBridgeAgent in the list. This permission is only used to send M5 key presses to your Mac.";
+"请在列表中允许 Codex Deck；该权限只用于把 M5 按键发送到 Mac。" = "Allow Codex Deck in the list. This permission is only used to send M5 key presses to your Mac.";
 "音频" = "Audio";
 "软件增益" = "Software Gain";
 "输出设备" = "Output Device";

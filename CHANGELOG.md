@@ -1,4 +1,4 @@
-# Changelog
+# Codex Deck changelog
 
 The release version is defined in [`version.json`](version.json). Generated
 version constants must be refreshed with `python3 tools/generate_versions.py`.
