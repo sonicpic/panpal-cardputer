@@ -16,6 +16,7 @@ def main() -> int:
     errors: list[str] = []
     required = [
         "README.md",
+        "README.zh-CN.md",
         "AGENTS.md",
         "LICENSE",
         "NOTICE.md",
