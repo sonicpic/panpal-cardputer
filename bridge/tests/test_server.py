@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 from pathlib import Path
 
 from cardbridge.protocol import encode_message, pack_audio
-from cardbridge.server import BridgeApp
+from cardbridge.server import BridgeApp, _mdns_instance_label
 from fake_device import FakeDevice
 
 
@@ -230,24 +230,37 @@ class ServerEndToEndTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MdnsLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    def test_instance_label_is_bounded_by_utf8_bytes(self) -> None:
+        suffix = "-abcdef"
+        for mac_name in ("runner-" + "a" * 100, "构建机" * 30):
+            label = _mdns_instance_label(mac_name, "abcdef123456")
+            self.assertLessEqual(len(label.encode("utf-8")), 63)
+            self.assertTrue(label.endswith(suffix))
+
     async def test_async_mdns_registers_without_blocking_event_loop(self) -> None:
         try:
             import zeroconf  # noqa: F401
         except ImportError:
             self.skipTest("zeroconf is optional for dependency-free source tests")
         with tempfile.TemporaryDirectory() as directory:
-            app = BridgeApp(
-                host="127.0.0.1",
-                tcp_port=0,
-                udp_port=0,
-                config_path=Path(directory) / "config.json",
-                no_audio=True,
-                dry_run=True,
-                advertise=True,
-                enable_agents=False,
-            )
+            with patch(
+                "cardbridge.config.socket.gethostname",
+                return_value="ci-runner-" + "a" * 100,
+            ):
+                app = BridgeApp(
+                    host="127.0.0.1",
+                    tcp_port=0,
+                    udp_port=0,
+                    config_path=Path(directory) / "config.json",
+                    no_audio=True,
+                    dry_run=True,
+                    advertise=True,
+                    enable_agents=False,
+                )
             await asyncio.wait_for(app.start(), 5)
             self.assertIsNotNone(app.service_info)
+            instance_label = app.service_info.name.split(".", 1)[0]
+            self.assertLessEqual(len(instance_label.encode("utf-8")), 63)
             await asyncio.wait_for(app.stop(), 5)
 
     async def test_network_change_refreshes_mdns_without_restarting_bridge(self) -> None:

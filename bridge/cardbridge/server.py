@@ -41,6 +41,21 @@ from .versioning import CompatibilityError, DeviceCompatibility, negotiate_devic
 LOG = logging.getLogger("cardbridge")
 
 
+def _mdns_instance_label(mac_name: str, bridge_id: str) -> str:
+    """Return a DNS-SD instance label bounded to the 63-byte DNS limit."""
+
+    safe_name = "".join(
+        character if character.isalnum() or character in "-_" else "-"
+        for character in mac_name
+    )
+    suffix = f"-{bridge_id[:6]}"
+    prefix_budget = max(0, 63 - len(suffix.encode("utf-8")))
+    prefix = safe_name.encode("utf-8")[:prefix_budget].decode(
+        "utf-8", errors="ignore"
+    )
+    return f"{prefix or 'Mac'}{suffix}"
+
+
 class AudioDatagramProtocol(asyncio.DatagramProtocol):
     def __init__(self, app: "BridgeApp") -> None:
         self.app = app
@@ -425,11 +440,10 @@ class BridgeApp:
             raise RuntimeError("zeroconf is missing; install bridge/requirements.txt") from exc
         address = self.lan_address or _local_ipv4()
         service_type = "_cardbridge._tcp.local."
-        safe_name = "".join(
-            character if character.isalnum() or character in "-_" else "-"
-            for character in self.config.mac_name
+        instance_label = _mdns_instance_label(
+            self.config.mac_name, self.config.bridge_id
         )
-        service_name = f"{safe_name}-{self.config.bridge_id[:6]}.{service_type}"
+        service_name = f"{instance_label}.{service_type}"
         self.service_info = ServiceInfo(
             service_type,
             service_name,
