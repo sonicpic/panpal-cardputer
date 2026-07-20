@@ -141,7 +141,7 @@
 ## 8. 目录规划
 
 ```
-m5-cardputer/
+cardputer-codex-deck/
 ├── docs/GOAL.md            ← 本文档
 ├── platformio.ini
 ├── src/                    ← 固件(main.cpp 装配 + 各模块)

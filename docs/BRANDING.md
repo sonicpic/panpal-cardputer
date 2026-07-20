@@ -5,6 +5,9 @@
 **Codex Deck** is the public product and project name. We use the standard
 spelling `Codex`, not `CodeX`.
 
+The GitHub repository slug is `cardputer-codex-deck`; the supported hardware
+target is currently the M5Stack Cardputer ADV.
+
 Suggested description:
 
 > Codex Deck is an independent pocket hardware companion for OpenAI Codex,

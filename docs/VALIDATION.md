@@ -18,7 +18,7 @@
 ## Development checks (safe without hardware)
 
 ```sh
-cd /path/to/m5-cardputer
+cd /path/to/cardputer-codex-deck
 python3 tools/generate_versions.py --check
 pio run
 PYTHONPATH=bridge python3 -m unittest discover -s bridge/tests -v

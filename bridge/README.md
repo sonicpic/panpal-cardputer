@@ -14,7 +14,7 @@ The bridge writes to the Feed device; Typeless and QuickTime read the paired inp
 ## 2. Create the Python 3.10 environment
 
 ```sh
-cd /path/to/m5-cardputer/bridge
+cd /path/to/cardputer-codex-deck/bridge
 /usr/bin/python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -26,7 +26,7 @@ If `/usr/bin/python3` is not Python 3.10 or newer, invoke the installed Python 3
 ## 3. First run and pairing
 
 ```sh
-cd /path/to/m5-cardputer/bridge
+cd /path/to/cardputer-codex-deck/bridge
 source .venv/bin/activate
 cardbridge
 ```
@@ -46,7 +46,7 @@ cardbridge --dry-run --no-audio -v
 `CardBridge.app` uses `SMAppService` and automatically migrates/removes the old item. Only use this legacy installer when deliberately testing the source Agent without the App:
 
 ```sh
-cd /path/to/m5-cardputer/bridge
+cd /path/to/cardputer-codex-deck/bridge
 source .venv/bin/activate
 python install_launch_agent.py install
 ```
@@ -102,7 +102,7 @@ It may then request `snapshot_req`, send `subscribe` for live snapshots, or use 
 Terminal 1:
 
 ```sh
-cd /path/to/m5-cardputer/bridge
+cd /path/to/cardputer-codex-deck/bridge
 source .venv/bin/activate
 cardbridge --dry-run --no-audio -v
 ```
@@ -110,7 +110,7 @@ cardbridge --dry-run --no-audio -v
 Terminal 2:
 
 ```sh
-cd /path/to/m5-cardputer/bridge
+cd /path/to/cardputer-codex-deck/bridge
 source .venv/bin/activate
 python fake_device.py
 ```
@@ -120,7 +120,7 @@ Enter the pairing code printed in terminal 1. The simulator authenticates, sends
 Run all dependency-free tests with:
 
 ```sh
-cd /path/to/m5-cardputer/bridge
+cd /path/to/cardputer-codex-deck/bridge
 PYTHONPATH=. python -m unittest discover -s tests -v
 ```
 

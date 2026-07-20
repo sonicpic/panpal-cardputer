@@ -48,7 +48,7 @@ or a terminal.
 From a clean checkout:
 
 ```sh
-cd /path/to/m5-cardputer
+cd /path/to/cardputer-codex-deck
 ./scripts/doctor.sh
 ./scripts/bootstrap.sh
 ./scripts/test.sh
