@@ -2,23 +2,48 @@
 
 CardBridge turns an M5Stack Cardputer ADV into a WiFi microphone, keyboard, and Codex session companion for macOS. The firmware streams authenticated 16 kHz PCM audio and explicit key down/up events to the companion service in `bridge/`; its Codex page shows the latest user-focused task, animated state, and up to eight switchable sessions. ChatGPT OAuth shows real weekly/5-hour subscription limits; API key and custom-provider modes show compact animated unlimited bars, while an indeterminate account state remains gray. The device UI is deliberately Codex-only and does not expose an unsupported Claude entry.
 
-The authoritative product requirements and acceptance criteria are in [`docs/GOAL.md`](docs/GOAL.md). Mac installation, BlackHole and Typeless setup, simulator use, and service operation are documented in [`bridge/README.md`](bridge/README.md).
+Current installation and development instructions start at
+[`docs/README.md`](docs/README.md). Product requirements and historical
+acceptance records remain in `docs/`, but they are not the canonical install
+path.
+
+## Install a release
+
+Normal users should download the signed/notarized App and matching firmware
+from GitHub Releases. Verify `SHA256SUMS`, move `CardBridge.app` to
+`/Applications`, launch it, and follow the one-time macOS permission prompts.
+The complete flow is in [`docs/INSTALL.md`](docs/INSTALL.md).
+
+From a checkout, `./scripts/install-release.sh` performs the download,
+checksum verification, DMG mount, and App installation automatically.
+
+The current packaged target is Apple Silicon on macOS 13 or newer. CardBridge
+requires a Cardputer ADV on a 2.4 GHz Wi-Fi network. Installing the Mac App and
+flashing the Cardputer firmware are separate operations.
 
 ## Use the Mac menu bar app
 
 `CardBridge.app` is the normal Mac entry point. It bundles its own signed Bridge Agent, starts bridging immediately, appears only in the menu bar, reconnects paired M5 devices automatically, and does not require Python, a virtual environment, or a terminal.
 
-For a local Apple Silicon build:
+For a source build on Apple Silicon:
 
 ```sh
-macos/scripts/build_app.sh
-ditto macos/dist/CardBridge.app /Applications/CardBridge.app
-open /Applications/CardBridge.app
+./scripts/doctor.sh
+./scripts/bootstrap.sh
+./scripts/test.sh
+./scripts/build.sh
+./scripts/install.sh
+./scripts/healthcheck.sh
 ```
 
 On first launch, CardBridge offers to install its bundled `CardBridge Microphone` HAL driver with one macOS administrator prompt, then requests **System Settings → Privacy & Security → Accessibility** for keyboard forwarding. The microphone publishes an input-only USB-compatible Core Audio device and a separate output-only feed used by the Agent; an existing BlackHole 2ch installation remains a fallback. Existing `~/.cardbridge` identity and pairing data are migrated without re-pairing; pairing secrets move to the macOS Keychain.
 
 The menu shows live M5, protocol, local-network, Accessibility, audio, and Codex health. Settings manages login launch, audio gain, paired devices, Codex Hooks, automatic updates, and redacted diagnostics.
+
+An automation agent may run every command above. It must pause for explicit
+user approval when macOS requests administrator, Accessibility, Local Network,
+Keychain, or Codex Hook trust. See [`AGENTS.md`](AGENTS.md) and the
+machine-readable [`project-install.json`](project-install.json).
 
 ## Build firmware
 
@@ -87,3 +112,15 @@ The generator verifies the pinned source-font checksum and invokes `lv_font_conv
 - In WiFi and paired-Mac lists, `Backspace` forgets or deletes the selected saved item. No Fn chord is required.
 - Password entry preserves case and shifted symbols: hold `Shift` while typing uppercase letters or symbols. `Backspace` edits and the backtick/ESC key cancels.
 - WiFi setup always starts from a scan list; only the password is typed.
+
+## Project policy
+
+The main project is available under the MIT License. The BlackHole-derived
+audio driver in `driver/` is GPLv3 and retains its own license and notices.
+Before redistributing, read [`NOTICE.md`](NOTICE.md),
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), and
+[`assets/ASSET_SOURCES.md`](assets/ASSET_SOURCES.md).
+
+Contributions, security reports, and support requests are described in
+[`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), and
+[`SUPPORT.md`](SUPPORT.md).

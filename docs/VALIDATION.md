@@ -1,5 +1,10 @@
 # CardBridge validation handoff
 
+> **Historical validation log.** This file records results from multiple past
+> builds. Do not use an old version number, BlackHole-only step, device path,
+> checksum, or process ID as a current installation instruction. Use
+> [`INSTALL.md`](INSTALL.md) and `version.json` for the current release.
+
 `GOAL.md` remains the product source of truth. This file records the repeatable development checks and the physical acceptance sequence for the Codex/user workflow.
 
 ## 2026-07-18 CardBridge Microphone compatibility validation

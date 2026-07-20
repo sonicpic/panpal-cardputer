@@ -49,6 +49,8 @@ ditto "${bin_dir}/Sparkle.framework" "${contents_dir}/Frameworks/Sparkle.framewo
 ditto "${macos_dir}/App/Info.plist" "${contents_dir}/Info.plist"
 ditto "${macos_dir}/App/Resources" "${contents_dir}/Resources"
 ditto "${macos_dir}/App/CardBridge.icns" "${contents_dir}/Resources/CardBridge.icns"
+"${repo_dir}/bridge/.venv/bin/python" "${repo_dir}/tools/collect_licenses.py" \
+  --output "${contents_dir}/Resources/Licenses"
 mkdir -p "${contents_dir}/Resources/AudioDriver"
 ditto "${repo_dir}/driver/build/CardBridgeMicrophone.driver" \
   "${contents_dir}/Resources/AudioDriver/CardBridgeMicrophone.driver"

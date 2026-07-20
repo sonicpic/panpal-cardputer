@@ -1,5 +1,9 @@
 # CardBridge macOS Menu Bar App 与版本治理规划
 
+> **Archived implementation plan.** The menu bar App described here has been
+> implemented. Current installation and architecture are documented in
+> [`INSTALL.md`](INSTALL.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 > 状态：Implemented / 1.0 RC 验收中
 > 日期：2026-07-15
 > 范围：Mac 菜单栏 App、桥接后台、设备协议版本、发布与升级；不包含本期固件 OTA

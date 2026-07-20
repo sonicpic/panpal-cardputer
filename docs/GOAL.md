@@ -1,5 +1,10 @@
 # GOAL — Cardputer ADV 无线语音键盘 + Agent 监控终端
 
+> **文档定位：产品需求记录，不是安装指南。** 当前安装、音频驱动和
+> 发布流程以 [`INSTALL.md`](INSTALL.md)、[`ARCHITECTURE.md`](ARCHITECTURE.md)
+> 和根目录 `version.json` 为准。本文保留部分历史验收措辞，AI 不得据此
+> 覆盖当前 `CardBridge Microphone` 流程或版本号。
+
 > 本文档是本仓库的**唯一目标定义**(single source of truth)。接手开发前请通读。
 > 分工:Codex 负责实现、编译、烧录与实机联调;用户负责确认最终体验。
 

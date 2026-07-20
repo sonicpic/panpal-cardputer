@@ -2,6 +2,10 @@
 
 `compatibility.json` 由根目录 `version.json` 生成；`appcast.xml` 是 Sparkle 稳定更新源。
 
+公开 tag 必须与 `version.json.release` 完全一致。正式产物包括签名并公证的
+App ZIP、面向用户的 DMG、固件 BIN、兼容性清单、第三方声明、发布 manifest
+和 `SHA256SUMS`。普通用户优先安装 DMG；Sparkle 使用 ZIP。
+
 本机候选构建：
 
 ```sh
@@ -19,3 +23,6 @@ macos/scripts/release.sh
 ```
 
 Sparkle 私钥只保存在本机 Keychain，账户名固定为 `com.voltwake.cardbridge`；仓库仅保存公钥。
+
+发布前还必须审阅根目录 `THIRD_PARTY_NOTICES.md`、`assets/ASSET_SOURCES.md`
+和 `SECURITY.md`，并确认 GitHub Release 中的所有文件都出现在校验清单中。

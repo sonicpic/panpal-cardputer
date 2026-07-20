@@ -1,0 +1,43 @@
+{
+  "name": "CardBridge",
+  "repository": "https://github.com/voltwake/m5-cardputer",
+  "platform": "macOS",
+  "minimum_os": "13.0",
+  "architectures": ["arm64"],
+  "hardware": {
+    "name": "M5Stack Cardputer ADV",
+    "chip": "ESP32-S3",
+    "wifi": "2.4GHz"
+  },
+  "prebuilt_install": {
+    "source": "GitHub Releases",
+    "command": "./scripts/install-release.sh --version <version>",
+    "artifacts": ["CardBridge-<version>.dmg", "cardputer-adv-firmware-<version>.bin", "SHA256SUMS"]
+  },
+  "source_install": {
+    "doctor": "./scripts/doctor.sh --json",
+    "bootstrap": "./scripts/bootstrap.sh",
+    "test": "./scripts/test.sh",
+    "build": "./scripts/build.sh",
+    "install": "./scripts/install.sh",
+    "healthcheck": "./scripts/healthcheck.sh --json"
+  },
+  "permissions": [
+    "administrator_for_audio_driver",
+    "accessibility_for_keyboard_injection",
+    "local_network_for_cardputer_discovery",
+    "keychain_for_pairing_tokens",
+    "codex_hook_trust_if_hooks_are_enabled"
+  ],
+  "firmware": {
+    "build": "pio run",
+    "flash": "pio run -t upload",
+    "port": "/dev/cu.usbmodem*"
+  },
+  "health": {
+    "socket": "~/Library/Application Support/CardBridge/run/agent.sock",
+    "tcp_port": 7788,
+    "udp_port": 7789,
+    "hook_port": 7790
+  }
+}

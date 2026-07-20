@@ -16,8 +16,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+      - name: Verify release tag and public project contract
+        run: |
+          tag_version=${GITHUB_REF_NAME#v}
+          project_version=$(python3 -c 'import json; print(json.load(open("version.json"))["release"])')
+          test "$tag_version" = "$project_version"
+          python3 tools/check_project.py
       - name: Install build tools
-        run: python -m pip install platformio
+        run: ./scripts/bootstrap.sh
       - name: Import Developer ID certificate
         env:
           CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12 }}

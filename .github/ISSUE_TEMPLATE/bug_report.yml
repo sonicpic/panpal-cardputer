@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible CardBridge problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include pairing tokens, passwords, API keys, Codex content, or recordings.
+  - type: input
+    id: version
+    attributes:
+      label: CardBridge version and build
+      placeholder: 1.1.0 (9)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: macOS version and architecture
+      placeholder: macOS 26.x, arm64
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted doctor/health-check output
+      render: shell
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed tokens, passwords, API keys, Codex content, personal paths, and recordings.
+          required: true

@@ -46,8 +46,19 @@ def main() -> int:
         app
         / "Contents/Resources/AudioDriver/CardBridgeMicrophone.driver"
     )
+    licenses = app / "Contents/Resources/Licenses"
     driver_info = plistlib.loads((audio_driver / "Contents/Info.plist").read_bytes())
     assert driver_info["CFBundleIdentifier"] == "com.voltwake.cardbridge.microphone.driver"
+    for required_license in (
+        "CardBridge-MIT.txt",
+        "CardBridgeMicrophone-GPL-3.0.txt",
+        "CardBridgeMicrophone-NOTICE.md",
+        "SourceHanSans-OFL.txt",
+        "Sparkle-LICENSE.txt",
+        "THIRD_PARTY_NOTICES.md",
+        "Python-dependencies.json",
+    ):
+        assert (licenses / required_license).is_file(), f"missing license: {required_license}"
     assert "arm64" in run("lipo", "-archs", str(executable)).stdout.split()
     assert "arm64" in run("lipo", "-archs", str(agent_executable)).stdout.split()
     driver_archs = run(

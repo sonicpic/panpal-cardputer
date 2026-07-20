@@ -1,5 +1,8 @@
 # Codex 会话管理与宠物动画规划书
 
+> **Historical implementation plan.** Use `README.md`,
+> [`ARCHITECTURE.md`](ARCHITECTURE.md), and current tests for shipping behavior.
+
 > 版本：v0.2（首版实现稿）
 > 日期：2026-07-15
 > 范围：专注完成 Codex；本阶段不接入 Claude，也不保留 Claude 设备端入口。
