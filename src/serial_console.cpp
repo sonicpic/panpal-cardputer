@@ -75,9 +75,10 @@ void SerialConsole::handle(const String& line) {
   } else if (verb == "wifis") {
     for (size_t i = 0; i < wifi_.scanCount(); ++i) {
       const auto& network = wifi_.scanResult(i);
-      Serial.printf("[wifis] %u \"%s\" rssi=%d%s%s\n", i,
+      Serial.printf("[wifis] %u \"%s\" rssi=%d%s%s%s\n", i,
                     network.ssid.c_str(), network.rssi,
                     network.encrypted ? " enc" : "",
+                    network.enterprise ? " eap" : "",
                     network.saved ? " saved" : "");
     }
     Serial.printf("[wifis] total=%u scanning=%d\n", wifi_.scanCount(),
@@ -93,6 +94,21 @@ void SerialConsole::handle(const String& line) {
     const bool ok = wifi_.addAndConnect(ssid, password);
     Serial.printf("[console] wifi add \"%s\" -> %s\n", ssid.c_str(),
                   ok ? "connecting" : "FAILED");
+  } else if (verb == "wifi-eap") {
+    // wifi-eap <ssid> <username> <password> configures the same PEAP path as
+    // the on-device enterprise Wi-Fi form. Keep credentials out of logs.
+    const int first = rest.indexOf(' ');
+    const int second = first < 0 ? -1 : rest.indexOf(' ', first + 1);
+    if (first <= 0 || second <= first + 1 || second >= rest.length() - 1) {
+      Serial.println("[console] usage: wifi-eap <ssid> <username> <password>");
+      return;
+    }
+    const String ssid = rest.substring(0, first);
+    const String username = rest.substring(first + 1, second);
+    const String password = rest.substring(second + 1);
+    const bool ok = wifi_.addEnterpriseAndConnect(ssid, username, password);
+    Serial.printf("[console] enterprise WiFi add \"%s\" -> %s\n",
+                  ssid.c_str(), ok ? "connecting" : "FAILED");
   } else if (verb == "forget") {
     Serial.printf("[console] forget -> %d\n", wifi_.forget(rest));
   } else if (verb == "computers") {
@@ -213,7 +229,8 @@ void SerialConsole::handle(const String& line) {
     Serial.println("[console] disconnected");
   } else if (verb == "help") {
     Serial.println(
-        "[console] status | scan | wifis | wifi <ssid> <pw> | forget <ssid> | "
+        "[console] status | scan | wifis | wifi <ssid> <pw> | "
+        "wifi-eap <ssid> <user> <pw> | forget <ssid> | "
         "computers | discover | connect <n> | pair <code> | key <k> [mods] | "
         "agents | page codex | mute on|off | disconnect");
   } else {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import json
 import logging
 import os
@@ -8,15 +9,17 @@ import platform
 import secrets
 import socket
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from .agents import AgentStore
-from .audio import CARDBRIDGE_FEED_DEVICE, BlackHoleAudioOutput, NullAudioOutput
+from .audio import BlackHoleAudioOutput, NullAudioOutput, default_audio_device
+from .ble_transport import BleBridgeTransport
 from .codex_monitor import CodexMonitor, start_hook_receiver
-from .codex_hooks import hooks_installed, update_hooks
+from .codex_hooks import hook_command, hooks_installed, update_hooks
 from .config import BridgeConfig
 from .control_server import AgentControlServer
 from .keyboard import KeyInjector
@@ -37,8 +40,10 @@ from ._generated_version import (
 )
 from .status import ConnectedDevice
 from .versioning import CompatibilityError, DeviceCompatibility, negotiate_device
+from .voice import VoiceInputController, parse_hotkey
 
 LOG = logging.getLogger("cardbridge")
+PAIR_CODE_REUSE_SECONDS = 60.0
 
 
 def _mdns_instance_label(mac_name: str, bridge_id: str) -> str:
@@ -75,7 +80,7 @@ class BridgeApp:
         tcp_port: int = 7788,
         udp_port: int = 7789,
         config_path: Path | None = None,
-        audio_device: str = CARDBRIDGE_FEED_DEVICE,
+        audio_device: str | None = None,
         jitter_ms: int = 100,
         gain: float = 20.0,
         no_audio: bool = False,
@@ -86,12 +91,23 @@ class BridgeApp:
         enable_agents: bool = True,
         hook_port: int = 7790,
         control_socket_path: Path | None = None,
+        config: BridgeConfig | None = None,
     ) -> None:
         self.host = host
         self.tcp_port = tcp_port
         self.udp_port = udp_port
-        self.config = BridgeConfig(config_path)
+        if config is not None and config_path is not None:
+            raise ValueError("config and config_path are mutually exclusive")
+        self.config = config or BridgeConfig(config_path)
+        self.bridge_transport = self.config.bridge_transport()
+        self.wifi_enabled = self.bridge_transport in {"both", "wifi"}
+        self.bluetooth_enabled = (
+            self.bridge_transport in {"both", "bluetooth"} and not dry_run
+        )
         self.keyboard = KeyInjector(dry_run=dry_run)
+        self.voice = VoiceInputController(
+            self.config, self.keyboard, on_change=self._status_changed
+        )
         # Diagnostic tap: raw device PCM (pre-jitter) straight to a WAV file so
         # the mic->UDP->bridge path can be verified without a loopback driver.
         self._record_path = record_path
@@ -99,7 +115,13 @@ class BridgeApp:
         self.audio = (
             NullAudioOutput(jitter_ms)
             if no_audio
-            else BlackHoleAudioOutput(audio_device, jitter_ms, gain)
+            else BlackHoleAudioOutput(
+                audio_device
+                or str(self.config.voice_settings()["feed_output_device"])
+                or default_audio_device(),
+                jitter_ms,
+                gain,
+            )
         )
         self.dry_run = dry_run
         self.advertise = advertise
@@ -119,6 +141,10 @@ class BridgeApp:
         self.shutdown_requested = asyncio.Event()
         self.connected_devices: dict[asyncio.StreamWriter, ConnectedDevice] = {}
         self.pairing_status: dict[str, object] | None = None
+        # A Cardputer may reconnect while its first unauthenticated TCP socket
+        # is still being retired. Reuse one code per physical device so a Wi-Fi
+        # wobble cannot show two conflicting dialogs to the user.
+        self._pending_pair_codes: dict[str, tuple[str, float]] = {}
         self.agents = AgentStore()
         self.codex_monitor = CodexMonitor(self.agents)
         self.hook_transport: asyncio.DatagramTransport | None = None
@@ -126,8 +152,15 @@ class BridgeApp:
         self._agent_clients: dict[asyncio.StreamWriter, str] = {}
         self._agent_broadcast_pending = False
         self.active_tokens: dict[str, tuple[str, str]] = {}
+        # Track which TCP/GATT writer owns each active token.  The public
+        # token->(device, address) map remains intentionally small because the
+        # UDP audio path reads it, while ownership lets a rebooted Cardputer
+        # replace a half-open connection without the old task deleting the new
+        # session during its finally block.
+        self._active_token_writers: dict[str, asyncio.StreamWriter] = {}
         self.tcp_server: asyncio.AbstractServer | None = None
         self.udp_transport: asyncio.DatagramTransport | None = None
+        self.ble_transport = BleBridgeTransport(self)
         self.zeroconf: Any = None
         self.service_info: Any = None
         self.control_server = (
@@ -143,29 +176,35 @@ class BridgeApp:
     async def start(self) -> None:
         self.service_state = "starting"
         self.started_at_ms = int(time.time() * 1000)
-        self.lan_address = _local_ipv4()
-        self.network_available = self.lan_address != "127.0.0.1"
+        self.lan_address = _local_ipv4() if self.wifi_enabled else ""
+        self.network_available = (
+            self.lan_address != "127.0.0.1" if self.wifi_enabled else True
+        )
         self.last_error = ""
         self.agents.set_on_change(self._agent_changed)
         self._start_audio_output()
         self.keyboard.check_accessibility(prompt=not self.dry_run)
-        loop = asyncio.get_running_loop()
-        transport, _ = await loop.create_datagram_endpoint(
-            lambda: AudioDatagramProtocol(self), local_addr=(self.host, self.udp_port)
-        )
-        self.udp_transport = transport
-        udp_socket = transport.get_extra_info("socket")
-        self.udp_port = int(udp_socket.getsockname()[1])
+        if self.wifi_enabled:
+            loop = asyncio.get_running_loop()
+            transport, _ = await loop.create_datagram_endpoint(
+                lambda: AudioDatagramProtocol(self),
+                local_addr=(self.host, self.udp_port),
+            )
+            self.udp_transport = transport
+            udp_socket = transport.get_extra_info("socket")
+            self.udp_port = int(udp_socket.getsockname()[1])
 
-        self.tcp_server = await asyncio.start_server(
-            self.handle_client,
-            self.host,
-            self.tcp_port,
-            limit=MAX_JSON_LINE + 1,
-        )
-        self.tcp_port = int(self.tcp_server.sockets[0].getsockname()[1])
-        if self.advertise:
-            await self._start_mdns()
+            self.tcp_server = await asyncio.start_server(
+                self.handle_client,
+                self.host,
+                self.tcp_port,
+                limit=MAX_JSON_LINE + 1,
+            )
+            self.tcp_port = int(self.tcp_server.sockets[0].getsockname()[1])
+            if self.advertise:
+                await self._start_mdns()
+        if self.bluetooth_enabled:
+            await self.ble_transport.start()
         if self.enable_agents:
             try:
                 self.hook_transport, self.hook_port = await start_hook_receiver(
@@ -181,7 +220,7 @@ class BridgeApp:
         self.service_state = "ready"
         self._status_changed()
         LOG.info(
-            "CardBridge ready: TCP %d, UDP %d, Mac name %s",
+            "CardBridge ready: TCP %d, UDP %d, host name %s",
             self.tcp_port,
             self.udp_port,
             self.config.mac_name,
@@ -223,6 +262,7 @@ class BridgeApp:
             self.hook_transport = None
         self._write_wav()
         await self._stop_mdns()
+        await self.ble_transport.stop()
         if self.tcp_server is not None:
             self.tcp_server.close()
             await self.tcp_server.wait_closed()
@@ -231,6 +271,8 @@ class BridgeApp:
             writer.close()
         self.connected_devices.clear()
         self.active_tokens.clear()
+        self._active_token_writers.clear()
+        self.voice.stop(force=True)
         if self.udp_transport is not None:
             self.udp_transport.close()
             self.udp_transport = None
@@ -293,12 +335,22 @@ class BridgeApp:
                 "late": jitter.late,
                 "resyncs": jitter.resyncs,
             },
+            "voice": self.voice.snapshot(),
+            "transports": {
+                "configured": self.bridge_transport,
+                "wifi_listening": self.tcp_server is not None,
+                "bluetooth_listening": self.ble_transport.scanner is not None,
+                "bluetooth_error": self.ble_transport.last_error,
+            },
             "codex": {
                 "enabled": self.enable_agents,
                 "connected": codex_connected,
                 "executable": self.codex_monitor.executable if self.enable_agents else None,
                 "hooks_listening": self.hook_transport is not None,
                 "hooks_installed": self.codex_hooks_installed,
+                "hooks_command": hook_command() if self.enable_agents else None,
+                "hooks_last_event_ms": self.agents.last_hook_event_ms or None,
+                "hooks_last_event": self.agents.last_hook_event or None,
                 "sessions": len(self.agents.sessions),
                 "quota_mode": self.agents.quota_mode,
                 "quota_available": self.agents.quota_available,
@@ -328,6 +380,58 @@ class BridgeApp:
             self.audio.gain = gain
             self._status_changed()
             return {"ok": True, "gain": gain}
+        if name == "set_voice_settings":
+            values = request.get("value")
+            if not isinstance(values, dict):
+                return {"ok": False, "error": "invalid_voice_settings"}
+            if self.voice.active:
+                return {"ok": False, "error": "voice_input_active"}
+            try:
+                previous = self.config.voice_settings()
+                candidate = dict(previous)
+                candidate.update(values)
+                parse_hotkey(str(candidate.get("hotkey", "")))
+                settings = self.config.update_voice_settings(values)
+            except (ValueError, OSError) as exc:
+                return {"ok": False, "error": str(exc)}
+            if (
+                not self.audio_disabled
+                and settings["feed_output_device"] != previous["feed_output_device"]
+            ):
+                self.audio.stop()
+                self.audio.device_name = str(settings["feed_output_device"])
+                self._start_audio_output()
+            self._status_changed()
+            return {"ok": True, "voice": settings}
+        if name == "list_audio_devices":
+            try:
+                import sounddevice
+
+                playback = sorted(
+                    {
+                        str(device["name"])
+                        for device in sounddevice.query_devices()
+                        if int(device["max_output_channels"]) >= 2
+                    },
+                    key=str.casefold,
+                )
+                capture = [device.name for device in self.voice.capture.list_devices()]
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "playback": playback, "capture": capture}
+        if name == "set_bridge_transport":
+            value = request.get("value")
+            if not isinstance(value, str):
+                return {"ok": False, "error": "invalid_bridge_transport"}
+            try:
+                selected = self.config.set_bridge_transport(value)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+            return {
+                "ok": True,
+                "bridge_transport": selected,
+                "restart_required": True,
+            }
         if name == "unpair":
             device_id = request.get("device_id")
             if not isinstance(device_id, str) or not device_id:
@@ -348,6 +452,9 @@ class BridgeApp:
             return {
                 "ok": True,
                 "hooks_installed": self.codex_hooks_installed,
+                "hooks_listening": self.hook_transport is not None,
+                "hooks_command": hook_command(),
+                "hooks_last_event_ms": self.agents.last_hook_event_ms or None,
             }
         if name in {"restart", "shutdown"}:
             asyncio.get_running_loop().call_later(0.1, self.shutdown_requested.set)
@@ -372,8 +479,10 @@ class BridgeApp:
         while True:
             await asyncio.sleep(2)
             ticks += 1
-            if ticks % 3 == 0:
+            if self.wifi_enabled and ticks % 3 == 0:
                 await self._refresh_network()
+            if self.bluetooth_enabled:
+                await self.ble_transport.ensure_scanning()
             if ticks % 5 == 0 and (self.audio_error or not self.audio.is_running()):
                 self._start_audio_output()
             await self._publish_status()
@@ -522,8 +631,10 @@ class BridgeApp:
                     elif supplied_token is not None:
                         await self._send(writer, {"t": "auth_error"})
                     else:
-                        pending_code = self.pair_code_factory()
-                        self._show_pair_code(pending_code, device_id)
+                        pending_code, is_new_code = self._pair_code_for(device_id)
+                        self._show_pair_code(
+                            pending_code, device_id, announce=is_new_code
+                        )
                         assert compatibility is not None
                         await self._send(
                             writer,
@@ -535,16 +646,24 @@ class BridgeApp:
                             },
                         )
                 elif message_type == "pair" and device_id and pending_code:
-                    if str(message.get("code", "")) != pending_code:
+                    supplied_code = str(message.get("code", ""))
+                    if (
+                        supplied_code != pending_code
+                        or not self._pending_pair_code_valid(
+                            device_id, supplied_code
+                        )
+                    ):
                         # A six-digit code must not be brute-forceable: after a
                         # few misses drop the link. Reconnecting shows a fresh
                         # code, so an attacker cannot enumerate one code.
                         pair_attempts += 1
                         if pair_attempts >= 3:
+                            self._pending_pair_codes.pop(device_id, None)
                             raise ProtocolError("too many wrong pairing codes")
                         await self._send(writer, {"t": "pair_error"})
                         continue
                     authenticated_token = self.config.pair(device_id)
+                    self._pending_pair_codes.pop(device_id, None)
                     if compatibility is None:
                         raise ProtocolError("pairing attempted before hello")
                     await self._send(
@@ -568,13 +687,28 @@ class BridgeApp:
             assert device_id is not None
             if compatibility is None:
                 raise ProtocolError("authenticated without protocol negotiation")
+            stale_writers = tuple(
+                current_writer
+                for current_writer, current in self.connected_devices.items()
+                if current.device_id == device_id and current_writer is not writer
+            )
+            if stale_writers:
+                self.voice.stop(device_id, force=True)
+            for stale_writer in stale_writers:
+                # A firmware/PC restart can establish the replacement socket
+                # before Windows notices that the old one died.  The newest
+                # successfully authenticated session wins immediately.
+                LOG.info("replacing stale control session for device %s", device_id)
+                stale_writer.close()
             connected_device = ConnectedDevice(
                 device_id=device_id,
                 peer_ip=peer_ip,
                 token=authenticated_token,
                 compatibility=compatibility,
+                transport="bluetooth" if peer_ip.startswith("ble:") else "wifi",
             )
             self.active_tokens[authenticated_token] = (device_id, peer_ip)
+            self._active_token_writers[authenticated_token] = writer
             self._agent_clients[writer] = authenticated_token
             self.connected_devices[writer] = connected_device
             self.pairing_status = None
@@ -591,11 +725,19 @@ class BridgeApp:
         finally:
             for key, modifiers in pressed.items():
                 self.keyboard.inject(key, "up", modifiers)
-            if authenticated_token and self.active_tokens.get(authenticated_token) == (
-                device_id,
-                peer_ip,
+            owns_active_session = bool(
+                authenticated_token
+                and self._active_token_writers.get(authenticated_token) is writer
+            )
+            if connected_device is not None and owns_active_session:
+                # A transport loss is not the user's explicit push-to-talk
+                # release, so it must release routing without submitting text.
+                self.voice.stop(connected_device.device_id, force=True)
+            if (
+                authenticated_token and owns_active_session
             ):
                 self.active_tokens.pop(authenticated_token, None)
+                self._active_token_writers.pop(authenticated_token, None)
             self._agent_clients.pop(writer, None)
             self.connected_devices.pop(writer, None)
             if self.pairing_status and self.pairing_status.get("device_id") == device_id:
@@ -655,15 +797,74 @@ class BridgeApp:
                 key = message.get("k")
                 action = message.get("a")
                 modifiers = message.get("m", [])
-                if not isinstance(key, str) or not isinstance(modifiers, list):
-                    continue
-                allowed = {"cmd", "shift", "alt", "ctrl"}
-                clean_modifiers = [item for item in modifiers if item in allowed]
-                if self.keyboard.inject(key, str(action), clean_modifiers):
+                request_id = message.get("request_id", 0)
+                ok = False
+                if (
+                    not isinstance(key, str)
+                    or not isinstance(action, str)
+                    or not isinstance(modifiers, list)
+                ):
+                    error = "invalid key event"
+                else:
+                    allowed = {"cmd", "shift", "alt", "ctrl"}
+                    clean_modifiers = [item for item in modifiers if item in allowed]
+                    ok = self.keyboard.inject(key, str(action), clean_modifiers)
+                    error = "" if ok else f"Windows rejected key event: {key} {action}"
+                if ok:
                     if action == "down":
                         pressed[key] = clean_modifiers
                     elif action == "up":
                         pressed.pop(key, None)
+                    if self.last_error.startswith("Windows rejected key event:"):
+                        self.last_error = ""
+                else:
+                    self.last_error = error
+                    LOG.warning("%s", error)
+                await self._send(
+                    writer,
+                    {
+                        "t": "key_ack",
+                        "request_id": request_id if isinstance(request_id, int) else 0,
+                        "ok": ok,
+                        "error": error,
+                        "token": token,
+                    },
+                )
+            elif message_type == "voice":
+                action = message.get("a")
+                locked = bool(message.get("locked", False))
+                request_id = message.get("request_id", 0)
+                ok = True
+                if action == "down":
+                    ok = self.voice.start(device.device_id, locked=locked)
+                elif action == "lock":
+                    self.voice.set_locked(device.device_id, locked)
+                elif action == "up":
+                    ok = self.voice.stop(
+                        device.device_id,
+                        send_enter=bool(message.get("send_enter", False)),
+                    )
+                else:
+                    ok = False
+                error = self.voice.last_error if not ok else ""
+                LOG.info(
+                    "voice control action=%s request=%s ok=%s error=%s",
+                    action,
+                    request_id,
+                    ok,
+                    error,
+                )
+                await self._send(
+                    writer,
+                    {
+                        "t": "voice_ack",
+                        "a": action,
+                        "request_id": request_id if isinstance(request_id, int) else 0,
+                        "ok": ok,
+                        "error": error,
+                        "token": token,
+                    },
+                )
             elif message_type == "agent_list_req":
                 limit = message.get("limit", 8)
                 clean_limit = max(1, min(8, int(limit))) if isinstance(limit, int) else 8
@@ -724,13 +925,45 @@ class BridgeApp:
         message["token"] = token
         await self._send(writer, message)
 
-    def _show_pair_code(self, code: str, device_id: str) -> None:
+    def _pair_code_for(self, device_id: str) -> tuple[str, bool]:
+        now = time.monotonic()
+        for current_device, (_code, expires_at) in tuple(
+            self._pending_pair_codes.items()
+        ):
+            if expires_at <= now:
+                self._pending_pair_codes.pop(current_device, None)
+        existing = self._pending_pair_codes.get(device_id)
+        if existing is not None:
+            LOG.info("reusing pending pairing code for device %s", device_id)
+            return existing[0], False
+        code = self.pair_code_factory()
+        self._pending_pair_codes[device_id] = (
+            code,
+            now + PAIR_CODE_REUSE_SECONDS,
+        )
+        return code, True
+
+    def _pending_pair_code_valid(self, device_id: str, code: str) -> bool:
+        pending = self._pending_pair_codes.get(device_id)
+        if pending is None:
+            return False
+        expected, expires_at = pending
+        if expires_at <= time.monotonic():
+            self._pending_pair_codes.pop(device_id, None)
+            return False
+        return secrets.compare_digest(expected, code)
+
+    def _show_pair_code(
+        self, code: str, device_id: str, *, announce: bool = True
+    ) -> None:
         self.pairing_status = {
             "device_id": device_id,
             "code": code,
             "created_at_ms": int(time.time() * 1000),
         }
         self._status_changed()
+        if not announce:
+            return
         # flush + log: stdout is block-buffered when redirected to a file, and
         # the code must be visible wherever the operator is watching.
         print("\n" + "=" * 50, flush=True)
@@ -750,6 +983,23 @@ class BridgeApp:
                 )
             except (OSError, subprocess.TimeoutExpired):
                 pass
+        elif platform.system() == "Windows" and not self.dry_run:
+            # A background Windows build has no terminal to show the short
+            # pairing secret. A normal user-session dialog is enough and does
+            # not require a service, toast package, or elevated permission.
+            def show_windows_dialog() -> None:
+                try:
+                    ctypes.windll.user32.MessageBoxW(
+                        None,
+                        f"Pairing code for Cardputer {device_id}: {code}\n\n"
+                        "Enter it on the Cardputer.",
+                        "PanPal pairing",
+                        0x40,  # MB_ICONINFORMATION
+                    )
+                except Exception:
+                    LOG.debug("Windows pairing dialog could not be displayed", exc_info=True)
+
+            threading.Thread(target=show_windows_dialog, daemon=True).start()
 
     def receive_audio(self, datagram: bytes, address: tuple[str, int]) -> None:
         peer_ip = str(address[0])
@@ -776,20 +1026,21 @@ def _local_ipv4() -> str:
     # Ask the primary LAN interfaces first. The default-route probe below can
     # pick a VPN utun address (e.g. 198.18.0.0/15 fake-IP) that LAN devices
     # cannot reach, which would advertise an unusable mDNS address.
-    for interface in ("en0", "en1"):
-        try:
-            result = subprocess.run(
-                ["ipconfig", "getifaddr", interface],
-                capture_output=True,
-                text=True,
-                timeout=2,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        address = result.stdout.strip()
-        if address:
-            return address
+    if platform.system() == "Darwin":
+        for interface in ("en0", "en1"):
+            try:
+                result = subprocess.run(
+                    ["ipconfig", "getifaddr", interface],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            address = result.stdout.strip()
+            if address:
+                return address
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         probe.connect(("8.8.8.8", 80))

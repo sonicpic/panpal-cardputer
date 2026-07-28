@@ -2,13 +2,96 @@
 
 #include <cstring>
 #include <new>
+#include <NimBLEDevice.h>
+#include <lwip/def.h>
+#include <mbedtls/md.h>
 
+#include "adpcm.h"
 #include "generated_version.h"
 
 namespace cardbridge {
 namespace {
 
 constexpr uint32_t kDiscoveryTimeoutMs = 3000;
+constexpr char kBleServiceUuid[] = "7e400001-b5a3-f393-e0a9-e50e24dcca9e";
+constexpr char kBleControlRxUuid[] = "7e400002-b5a3-f393-e0a9-e50e24dcca9e";
+constexpr char kBleControlTxUuid[] = "7e400003-b5a3-f393-e0a9-e50e24dcca9e";
+constexpr char kBleAudioTxUuid[] = "7e400004-b5a3-f393-e0a9-e50e24dcca9e";
+
+struct __attribute__((packed)) BleAudioBodyHeader {
+  uint32_t streamId;
+  uint32_t sequence;
+  uint32_t timestampMs;
+  int16_t predictor;
+  uint8_t index;
+  uint8_t reserved;
+};
+
+struct __attribute__((packed)) BleAudioFragmentHeader {
+  uint8_t magic[2];
+  uint32_t sequence;
+  uint8_t index;
+  uint8_t count;
+};
+
+constexpr size_t kBleAdpcmBytes = 160;
+constexpr size_t kBleAudioHmacBytes = 8;
+constexpr size_t kBleAudioBodyBytes =
+    sizeof(BleAudioBodyHeader) + kBleAdpcmBytes + kBleAudioHmacBytes;
+
+class CardBridgeBleServerCallbacks : public NimBLEServerCallbacks {
+ public:
+  explicit CardBridgeBleServerCallbacks(PairingManager* manager)
+      : manager_(manager) {}
+
+  void onConnect(NimBLEServer*, NimBLEConnInfo& info) override {
+    // Let Windows finish pairing and GATT enumeration with the controller's
+    // negotiated defaults. Forcing parameters inside this callback can race
+    // WinRT service discovery and surface as GATT "Unreachable".
+    manager_->bleConnected(info.getConnHandle(),
+                           info.getAddress().toString().c_str(),
+                           info.getAddress().getType(),
+                           info.getMTU());
+  }
+
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo& info, int reason) override {
+    manager_->bleDisconnected(info.getConnHandle(), reason);
+    // advertiseOnDisconnect(true) owns the restart. Starting advertising a
+    // second time from inside the NimBLE callback races the host state machine.
+  }
+
+  void onMTUChange(uint16_t mtu, NimBLEConnInfo& info) override {
+    manager_->bleMtuChanged(info.getConnHandle(), mtu);
+  }
+
+ private:
+  PairingManager* manager_;
+};
+
+class CardBridgeBleCharacteristicCallbacks
+    : public NimBLECharacteristicCallbacks {
+ public:
+  CardBridgeBleCharacteristicCallbacks(PairingManager* manager, bool receiver)
+      : manager_(manager), receiver_(receiver) {}
+
+  void onWrite(NimBLECharacteristic* characteristic,
+               NimBLEConnInfo&) override {
+    if (!receiver_) return;
+    const std::string& value = characteristic->getValue();
+    manager_->bleControlWritten(
+        reinterpret_cast<const uint8_t*>(value.data()), value.size());
+  }
+
+  void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo& info,
+                   uint16_t value) override {
+    if (receiver_) return;
+    manager_->bleControlSubscribed(info.getConnHandle(), value != 0);
+  }
+
+ private:
+  PairingManager* manager_;
+  bool receiver_;
+};
 
 bool deadlineReached(uint32_t deadline) {
   return static_cast<int32_t>(millis() - deadline) >= 0;
@@ -39,18 +122,337 @@ IPAddress resultIpv4(const mdns_result_t* result) {
 void PairingManager::begin(DeviceSettings* settings) {
   settings_ = settings;
   pairedCount_ = store_.loadPairedMacs(paired_, kMaxPairedMacs);
-  deviceId_ = WiFi.macAddress();
-  deviceId_.replace(":", "");
-  deviceId_.toLowerCase();
+  char deviceId[13];
+  const uint64_t efuse = ESP.getEfuseMac();
+  snprintf(deviceId, sizeof(deviceId), "%012llx",
+           static_cast<unsigned long long>(efuse & 0xFFFFFFFFFFFFULL));
+  deviceId_ = deviceId;
   incoming_.reserve(4096);
   connectResultQueue_ = xQueueCreate(1, sizeof(ConnectResult));
   if (!connectResultQueue_) {
     Serial.println("[pairing] failed to create connection result queue");
   }
   if (settings_ && !settings_->lastMacId.isEmpty()) targetId_ = settings_->lastMacId;
+  if (bluetoothMode() && !beginBluetooth()) {
+    Serial.println("[ble] initialization failed");
+  }
+}
+
+bool PairingManager::beginBluetooth() {
+  const int pairedIndex = pairedIndexById(targetId_);
+  targetToken_ = pairedIndex >= 0 ? paired_[pairedIndex].token : String();
+  targetName_ = pairedIndex >= 0 ? paired_[pairedIndex].name : String("Computer");
+  bleStreamId_ = esp_random();
+
+  const String advertisedName =
+      String("PanPal-") + deviceId_.substring(deviceId_.length() - 4);
+  if (!NimBLEDevice::init(advertisedName.c_str())) return false;
+  NimBLEDevice::setMTU(247);
+  // Bond and encrypt the radio link without depending on a BLE address for
+  // application identity. The existing six-digit code and 32-byte token still
+  // authenticate CardBridge at the protocol layer.
+  NimBLEDevice::setSecurityAuth(true, false, true);
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+
+  bleServer_ = NimBLEDevice::createServer();
+  if (!bleServer_) return false;
+  bleServer_->setCallbacks(new CardBridgeBleServerCallbacks(this));
+  bleServer_->advertiseOnDisconnect(true);
+
+  NimBLEService* service = bleServer_->createService(kBleServiceUuid);
+  if (!service) return false;
+  bleControlRx_ = service->createCharacteristic(
+      kBleControlRxUuid,
+      NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR, 512);
+  bleControlTx_ = service->createCharacteristic(
+      kBleControlTxUuid, NIMBLE_PROPERTY::NOTIFY, 512);
+  bleAudioTx_ = service->createCharacteristic(
+      kBleAudioTxUuid, NIMBLE_PROPERTY::NOTIFY, 512);
+  if (!bleControlRx_ || !bleControlTx_ || !bleAudioTx_) return false;
+  bleControlRx_->setCallbacks(
+      new CardBridgeBleCharacteristicCallbacks(this, true));
+  bleControlTx_->setCallbacks(
+      new CardBridgeBleCharacteristicCallbacks(this, false));
+  // NimBLE-Arduino 2.x starts the complete attribute database from the
+  // server. NimBLEService::start() is a deprecated no-op, which leaves the
+  // advertised service without our control/audio characteristics on Windows.
+  if (!bleServer_->start()) return false;
+
+  NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+  advertising->setName(advertisedName.c_str());
+  advertising->addServiceUUID(kBleServiceUuid);
+  advertising->enableScanResponse(true);
+  if (!advertising->start()) return false;
+  state_ = LinkState::Discovering;
+  Serial.printf("[ble] advertising %s device=%s heap=%u\n",
+                advertisedName.c_str(), deviceId_.c_str(), ESP.getFreeHeap());
+  return true;
+}
+
+void PairingManager::stopBluetooth() {
+  if (bleServer_ && bleConnHandle_ != 0xFFFF) {
+    bleServer_->disconnect(bleConnHandle_);
+  }
+  NimBLEDevice::stopAdvertising();
+  NimBLEDevice::deinit(true);
+  bleServer_ = nullptr;
+  bleControlRx_ = nullptr;
+  bleControlTx_ = nullptr;
+  bleAudioTx_ = nullptr;
+}
+
+void PairingManager::startBluetoothAdvertising() {
+  if (!bluetoothMode() || bleConnected_) return;
+  NimBLEDevice::startAdvertising();
+  state_ = LinkState::Discovering;
+}
+
+void PairingManager::bleConnected(uint16_t connHandle, const String& address,
+                                  uint8_t addressType, uint16_t mtu) {
+  portENTER_CRITICAL(&bleMux_);
+  bleConnected_ = true;
+  bleControlSubscribed_ = false;
+  bleHelloPending_ = false;
+  bleConnHandle_ = connHandle;
+  bleMtu_ = mtu;
+  portEXIT_CRITICAL(&bleMux_);
+  blePeerAddress_ = address;
+  blePeerAddressType_ = addressType;
+  state_ = LinkState::Connecting;
+  Serial.printf("[ble] connected peer=%s mtu=%u\n", address.c_str(), mtu);
+}
+
+void PairingManager::bleDisconnected(uint16_t connHandle, int reason) {
+  portENTER_CRITICAL(&bleMux_);
+  if (bleConnHandle_ == connHandle) {
+    bleConnected_ = false;
+    bleControlSubscribed_ = false;
+    bleHelloPending_ = false;
+    bleConnHandle_ = 0xFFFF;
+    bleRxLength_ = 0;
+    bleRxOverflow_ = false;
+  }
+  portEXIT_CRITICAL(&bleMux_);
+  agentOnline_ = false;
+  setAudioReady(false);
+  incoming_.clear();
+  missedPongs_ = 0;
+  state_ = LinkState::Discovering;
+  Serial.printf(
+      "[ble] disconnected reason=%d; advertising for Bluetooth reconnect\n",
+      reason);
+}
+
+void PairingManager::bleMtuChanged(uint16_t connHandle, uint16_t mtu) {
+  portENTER_CRITICAL(&bleMux_);
+  if (bleConnHandle_ == connHandle) bleMtu_ = mtu;
+  portEXIT_CRITICAL(&bleMux_);
+  Serial.printf("[ble] mtu=%u\n", mtu);
+}
+
+void PairingManager::bleControlSubscribed(uint16_t connHandle, bool enabled) {
+  portENTER_CRITICAL(&bleMux_);
+  if (bleConnHandle_ == connHandle) {
+    bleControlSubscribed_ = enabled;
+    bleHelloPending_ = enabled;
+  }
+  portEXIT_CRITICAL(&bleMux_);
+}
+
+void PairingManager::bleControlWritten(const uint8_t* data, size_t length) {
+  if (!data || !length) return;
+  portENTER_CRITICAL(&bleMux_);
+  for (size_t i = 0; i < length; ++i) {
+    const char character = static_cast<char>(data[i]);
+    if (bleRxOverflow_) {
+      if (character == '\n') bleRxOverflow_ = false;
+      continue;
+    }
+    if (bleRxLength_ >= kBleRxCapacity) {
+      bleRxLength_ = 0;
+      bleRxOverflow_ = true;
+      continue;
+    }
+    bleRx_[bleRxLength_++] = character;
+  }
+  portEXIT_CRITICAL(&bleMux_);
+}
+
+void PairingManager::readBluetoothIncoming() {
+  char chunk[256];
+  for (;;) {
+    size_t count = 0;
+    portENTER_CRITICAL(&bleMux_);
+    count = min<size_t>(sizeof(chunk), bleRxLength_);
+    if (count) {
+      memcpy(chunk, bleRx_, count);
+      memmove(bleRx_, bleRx_ + count, bleRxLength_ - count);
+      bleRxLength_ -= count;
+    }
+    portEXIT_CRITICAL(&bleMux_);
+    if (!count) break;
+    for (size_t i = 0; i < count; ++i) {
+      const char character = chunk[i];
+      if (character == '\n') {
+        if (!incoming_.isEmpty()) handleLine(incoming_);
+        incoming_.clear();
+      } else if (character != '\r') {
+        if (incoming_.length() < 4096) incoming_ += character;
+        else incoming_.clear();
+      }
+    }
+  }
+}
+
+bool PairingManager::sendBluetoothLine(const String& line) {
+  uint16_t connHandle;
+  uint16_t mtu;
+  bool subscribed;
+  portENTER_CRITICAL(&bleMux_);
+  connHandle = bleConnHandle_;
+  mtu = bleMtu_;
+  subscribed = bleConnected_ && bleControlSubscribed_;
+  portEXIT_CRITICAL(&bleMux_);
+  if (!subscribed || !bleControlTx_ || connHandle == 0xFFFF) return false;
+  const size_t chunkSize = max<size_t>(20, min<size_t>(180, mtu > 3 ? mtu - 3 : 20));
+  for (size_t offset = 0; offset < line.length(); offset += chunkSize) {
+    const size_t length = min(chunkSize, line.length() - offset);
+    if (!bleControlTx_->notify(
+            reinterpret_cast<const uint8_t*>(line.c_str()) + offset, length,
+            connHandle)) {
+      return false;
+    }
+    if (line.length() > chunkSize) delay(2);
+  }
+  return true;
+}
+
+void PairingManager::tickBluetooth() {
+  readBluetoothIncoming();
+  if (blePairingDeadlineMs_ && deadlineReached(blePairingDeadlineMs_)) {
+    blePairingDeadlineMs_ = 0;
+    Serial.println("[ble] new-computer pairing window closed");
+    if (state_ == LinkState::AwaitingPairCode &&
+        pairedIndexById(targetId_) < 0 && bleServer_ &&
+        bleConnHandle_ != 0xFFFF) {
+      bleServer_->disconnect(bleConnHandle_);
+    }
+  }
+  bool helloPending = false;
+  portENTER_CRITICAL(&bleMux_);
+  helloPending = bleHelloPending_;
+  bleHelloPending_ = false;
+  portEXIT_CRITICAL(&bleMux_);
+  if (helloPending) {
+    state_ = LinkState::Connecting;
+    sendHello();
+    lastHeartbeatMs_ = millis();
+    missedPongs_ = 0;
+  }
+  if (!bleConnected_) {
+    agentOnline_ = false;
+    setAudioReady(false);
+    return;
+  }
+  if (state_ == LinkState::Connected) {
+    const uint32_t now = millis();
+    if (now - lastHeartbeatMs_ >= kHeartbeatMs) {
+      StaticJsonDocument<256> ping;
+      ping["t"] = "ping";
+      const bool sent = sendDocument(ping);
+      ++missedPongs_;
+      if (!sent) {
+        Serial.printf("[ble] heartbeat notify busy (miss=%u)\n", missedPongs_);
+      }
+      // A transient full notification queue is normal on BLE. Only tear down
+      // the link after the same three-miss budget used for absent pongs.
+      if (missedPongs_ >= kHeartbeatMissLimit) {
+        if (bleServer_ && bleConnHandle_ != 0xFFFF) {
+          bleServer_->disconnect(bleConnHandle_);
+        }
+        return;
+      }
+      lastHeartbeatMs_ = now;
+    }
+  }
+}
+
+bool PairingManager::sendBleAudio(uint32_t sequence, uint32_t timestampMs,
+                                  const int16_t* samples, size_t count) {
+  uint16_t connHandle;
+  uint16_t mtu;
+  uint8_t token[32];
+  bool ready;
+  portENTER_CRITICAL(&bleMux_);
+  connHandle = bleConnHandle_;
+  mtu = bleMtu_;
+  const bool linkReady = bleConnected_ && bleControlSubscribed_;
+  portEXIT_CRITICAL(&bleMux_);
+  portENTER_CRITICAL(&audioMux_);
+  ready = audioReady_;
+  memcpy(token, audioToken_, sizeof(token));
+  portEXIT_CRITICAL(&audioMux_);
+  if (!linkReady || !ready || !bleAudioTx_ || connHandle == 0xFFFF) return false;
+
+  uint8_t body[kBleAudioBodyBytes]{};
+  auto* header = reinterpret_cast<BleAudioBodyHeader*>(body);
+  header->streamId = htonl(bleStreamId_);
+  header->sequence = htonl(sequence);
+  header->timestampMs = htonl(timestampMs);
+  ImaAdpcmState adpcmState;
+  if (!encodeImaAdpcm(samples, count, body + sizeof(*header),
+                      kBleAdpcmBytes, adpcmState)) {
+    return false;
+  }
+  header->predictor = static_cast<int16_t>(
+      htons(static_cast<uint16_t>(adpcmState.predictor)));
+  header->index = adpcmState.index;
+
+  uint8_t digest[32];
+  mbedtls_md_context_t context;
+  mbedtls_md_init(&context);
+  const mbedtls_md_info_t* info =
+      mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  const size_t authenticatedBytes = sizeof(*header) + kBleAdpcmBytes;
+  const bool hmacOk = info && mbedtls_md_setup(&context, info, 1) == 0 &&
+                      mbedtls_md_hmac_starts(&context, token, sizeof(token)) == 0 &&
+                      mbedtls_md_hmac_update(&context, body,
+                                             authenticatedBytes) == 0 &&
+                      mbedtls_md_hmac_finish(&context, digest) == 0;
+  mbedtls_md_free(&context);
+  if (!hmacOk) return false;
+  memcpy(body + authenticatedBytes, digest, kBleAudioHmacBytes);
+
+  const size_t mtuPayload = mtu > 3 ? mtu - 3 : 20;
+  if (mtuPayload <= sizeof(BleAudioFragmentHeader)) return false;
+  const size_t fragmentPayload = mtuPayload - sizeof(BleAudioFragmentHeader);
+  const uint8_t fragmentCount = static_cast<uint8_t>(
+      (sizeof(body) + fragmentPayload - 1) / fragmentPayload);
+  uint8_t packet[BLE_ATT_ATTR_MAX_LEN];
+  for (uint8_t fragment = 0; fragment < fragmentCount; ++fragment) {
+    const size_t offset = static_cast<size_t>(fragment) * fragmentPayload;
+    const size_t payloadLength = min(fragmentPayload, sizeof(body) - offset);
+    auto* fragmentHeader = reinterpret_cast<BleAudioFragmentHeader*>(packet);
+    fragmentHeader->magic[0] = 'B';
+    fragmentHeader->magic[1] = 'A';
+    fragmentHeader->sequence = htonl(sequence);
+    fragmentHeader->index = fragment;
+    fragmentHeader->count = fragmentCount;
+    memcpy(packet + sizeof(*fragmentHeader), body + offset, payloadLength);
+    if (!bleAudioTx_->notify(packet, sizeof(*fragmentHeader) + payloadLength,
+                             connHandle)) {
+      return false;
+    }
+    if (fragmentCount > 1) delay(1);
+  }
+  return true;
 }
 
 void PairingManager::tick() {
+  if (bluetoothMode()) {
+    tickBluetooth();
+    return;
+  }
   // Both operations used to block this function (and therefore the keyboard/UI
   // loop) for 1.5-3 seconds. They are now polled without waiting.
   pollDiscovery();
@@ -126,6 +528,10 @@ void PairingManager::tick() {
 }
 
 void PairingManager::requestDiscovery() {
+  if (bluetoothMode()) {
+    startBluetoothAdvertising();
+    return;
+  }
   if (wifi_.connected()) discoveryRequested_ = true;
 }
 
@@ -178,6 +584,7 @@ void PairingManager::pollDiscovery() {
   const int found = targetId_.isEmpty() ? -1 : discoveredIndexById(targetId_);
   rediscoveryRequired_ = !targetId_.isEmpty() && found < 0;
   if (!forReconnect || manualDisconnect_ || targetId_.isEmpty()) return;
+  if (client_.connected() || connectInFlight_) return;
   if (found < 0) {
     scheduleReconnect();
     return;
@@ -229,13 +636,23 @@ bool PairingManager::connectToDiscovered(size_t index) {
 
 bool PairingManager::connectToPaired(size_t index) {
   if (index >= pairedCount_) return false;
+  if (bluetoothMode()) {
+    targetId_ = paired_[index].id;
+    targetName_ = paired_[index].name;
+    targetToken_ = paired_[index].token;
+    manualDisconnect_ = false;
+    startBluetoothAdvertising();
+    return true;
+  }
   const int discoveredIndex = discoveredIndexById(paired_[index].id);
   if (discoveredIndex < 0) return false;
   return connectToDiscovered(static_cast<size_t>(discoveredIndex));
 }
 
 void PairingManager::attemptConnection() {
-  if (connectInFlight_) return;
+  // A reconnect discovery can finish after a newer socket has already
+  // connected. Never let that stale result stop the healthy TCP session.
+  if (connectInFlight_ || client_.connected()) return;
   if (targetIp_ == IPAddress()) {
     // No usable address yet — back off and re-discover instead of silently
     // spinning against 0.0.0.0.
@@ -293,10 +710,17 @@ void PairingManager::pollConnectionAttempt() {
     return;
   }
   if (!result.connected) {
+    Serial.printf("[pairing] TCP connect failed target=%s %s:%u\n",
+                  targetId_.c_str(), targetIp_.toString().c_str(), targetPort_);
     scheduleReconnect();
     state_ = LinkState::Offline;
     return;
   }
+  // Any still-running mDNS query may refresh the computer list, but it no
+  // longer owns reconnect once this TCP connection succeeds.
+  discoveryForReconnect_ = false;
+  Serial.printf("[pairing] TCP connected target=%s %s:%u\n",
+                targetId_.c_str(), targetIp_.toString().c_str(), targetPort_);
   client_.setNoDelay(true);
   client_.setTimeout(1);
   incoming_.clear();
@@ -316,7 +740,9 @@ void PairingManager::cancelConnectionAttempt() {
 void PairingManager::sendHello() {
   const int index = pairedIndexById(targetId_);
   targetToken_ = index >= 0 ? paired_[index].token : String();
-  StaticJsonDocument<768> hello;
+  // The authenticated hello includes a 64-character token plus every current
+  // capability. It no longer fits the original 512-byte wire buffer.
+  StaticJsonDocument<1280> hello;
   hello["t"] = "hello";
   hello["dev_id"] = deviceId_;
   if (targetToken_.isEmpty()) {
@@ -336,15 +762,21 @@ void PairingManager::sendHello() {
     capabilities.add(kDeviceCapabilities[i]);
   }
   if (!sendDocument(hello)) {
+    Serial.printf("[pairing] hello send failed target=%s\n", targetId_.c_str());
     connectionLost();
   } else {
+    Serial.printf("[pairing] hello sent target=%s auth=%s\n", targetId_.c_str(),
+                  targetToken_.isEmpty() ? "pair-code" : "saved-token");
     state_ = targetToken_.isEmpty() ? LinkState::AwaitingPairCode
                                     : LinkState::Authenticating;
   }
 }
 
 bool PairingManager::submitPairCode(const String& sixDigits) {
-  if (!client_.connected() || sixDigits.length() != 6) return false;
+  const bool linkConnected = bluetoothMode()
+                                 ? bleConnected_ && bleControlSubscribed_
+                                 : client_.connected();
+  if (!linkConnected || sixDigits.length() != 6) return false;
   for (char c : sixDigits) {
     if (!isDigit(c)) return false;
   }
@@ -356,17 +788,48 @@ bool PairingManager::submitPairCode(const String& sixDigits) {
 }
 
 bool PairingManager::sendKey(const char* key, const char* action, bool cmd,
-                             bool shift, bool option, bool control) {
-  if (!connected() || !client_.connected()) return false;
+                             bool shift, bool option, bool control,
+                             uint32_t requestId) {
+  if (!connected() ||
+      (bluetoothMode() ? !bleConnected_ : !client_.connected())) return false;
   StaticJsonDocument<384> document;
   document["t"] = "key";
   document["k"] = key;
   document["a"] = action;
+  document["request_id"] = requestId;
   JsonArray modifiers = document.createNestedArray("m");
   if (cmd) modifiers.add("cmd");
   if (shift) modifiers.add("shift");
   if (option) modifiers.add("alt");
   if (control) modifiers.add("ctrl");
+  return sendDocument(document);
+}
+
+void PairingManager::openBluetoothPairingWindow() {
+  if (!bluetoothMode()) return;
+  blePairingDeadlineMs_ = millis() + 60000UL;
+  startBluetoothAdvertising();
+  Serial.println("[ble] new-computer pairing open for 60 seconds");
+}
+
+bool PairingManager::bluetoothPairingOpen() const {
+  return bluetoothMode() && blePairingDeadlineMs_ &&
+         !deadlineReached(blePairingDeadlineMs_);
+}
+
+uint32_t PairingManager::bluetoothPairingSecondsRemaining() const {
+  if (!bluetoothPairingOpen()) return 0;
+  return (blePairingDeadlineMs_ - millis() + 999UL) / 1000UL;
+}
+
+bool PairingManager::sendVoice(const char* action, bool locked,
+                               uint32_t requestId, bool sendEnter) {
+  StaticJsonDocument<192> document;
+  document["t"] = "voice";
+  document["a"] = action;
+    document["locked"] = locked;
+    document["request_id"] = requestId;
+    if (strcmp(action, "up") == 0) document["send_enter"] = sendEnter;
   return sendDocument(document);
 }
 
@@ -379,16 +842,31 @@ bool PairingManager::sendAgentAck(const String& sessionId) {
 }
 
 bool PairingManager::sendDocument(JsonDocument& document) {
-  if (!client_.connected()) return false;
+  if (bluetoothMode()) {
+    if (!bleConnected_ || !bleControlSubscribed_) return false;
+  } else if (!client_.connected()) {
+    return false;
+  }
   if (state_ == LinkState::Connected && targetToken_.length() == 64 &&
       !document["token"].is<String>()) {
     document["token"] = targetToken_;
   }
   if (document.overflowed()) return false;
-  char line[512];
+  char line[1024];
   const size_t jsonLength = measureJson(document);
-  if (jsonLength + 1 > sizeof(line)) return false;
+  if (jsonLength + 1 > sizeof(line)) {
+    Serial.printf("[pairing] control message too large: %u bytes\n",
+                  static_cast<unsigned>(jsonLength));
+    return false;
+  }
   const size_t written = serializeJson(document, line, sizeof(line));
+  if (bluetoothMode()) {
+    String payload;
+    payload.reserve(written + 1);
+    payload.concat(line, written);
+    payload += '\n';
+    return sendBluetoothLine(payload);
+  }
   line[written] = '\n';
   return client_.write(reinterpret_cast<const uint8_t*>(line), written + 1) ==
          written + 1;
@@ -414,10 +892,28 @@ void PairingManager::handleLine(const String& line) {
   incomingDocument_.clear();
   if (deserializeJson(incomingDocument_, line) != DeserializationError::Ok) return;
   const String type = incomingDocument_["t"].as<String>();
+  if (bluetoothMode() && incomingDocument_["mac_id"].is<const char*>()) {
+    targetId_ = incomingDocument_["mac_id"].as<String>();
+  }
   if (state_ == LinkState::Connected &&
       (type == "ping" || type == "pong" || type == "agent_status" ||
-       type == "agent_list") &&
+       type == "agent_list" || type == "key_ack" || type == "voice_ack") &&
       incomingDocument_["token"].as<String>() != targetToken_) {
+    return;
+  }
+  if (type == "key_ack") {
+    keyAckRequestId_ = incomingDocument_["request_id"] | 0U;
+    keyAckOk_ = incomingDocument_["ok"] | false;
+    keyAckError_ = incomingDocument_["error"] | "";
+    ++keyAckRevision_;
+    return;
+  }
+  if (type == "voice_ack") {
+    voiceAckRequestId_ = incomingDocument_["request_id"] | 0U;
+    voiceAckAction_ = incomingDocument_["a"] | "";
+    voiceAckOk_ = incomingDocument_["ok"] | false;
+    voiceAckError_ = incomingDocument_["error"] | "";
+    ++voiceAckRevision_;
     return;
   }
   if (type == "pong") {
@@ -444,7 +940,13 @@ void PairingManager::handleLine(const String& line) {
     compatibilityReason_ = incomingDocument_["reason"] | "version_mismatch";
     requiredFirmware_ = incomingDocument_["required"]["min_firmware"] | "";
     parseBridgeMetadata(incomingDocument_);
-    client_.stop();
+    if (bluetoothMode()) {
+      if (bleServer_ && bleConnHandle_ != 0xFFFF) {
+        bleServer_->disconnect(bleConnHandle_);
+      }
+    } else {
+      client_.stop();
+    }
     incoming_.clear();
     connectedName_ = targetName_;
     state_ = LinkState::Incompatible;
@@ -455,10 +957,19 @@ void PairingManager::handleLine(const String& line) {
     return;
   }
   if (type == "pair_required") {
+    if (bluetoothMode() && pairedIndexById(targetId_) < 0 &&
+        !bluetoothPairingOpen()) {
+      Serial.println("[ble] rejected unknown computer outside pairing window");
+      if (bleServer_ && bleConnHandle_ != 0xFFFF) {
+        bleServer_->disconnect(bleConnHandle_);
+      }
+      return;
+    }
     parseBridgeMetadata(incomingDocument_);
     targetName_ = incomingDocument_["mac_name"] | targetName_;
     connectedName_ = targetName_;
     state_ = LinkState::AwaitingPairCode;
+    Serial.printf("[pairing] pair code required target=%s\n", targetId_.c_str());
     return;
   }
   if (type == "pair_error") {
@@ -484,7 +995,17 @@ void PairingManager::handleLine(const String& line) {
     paired_[index].id = targetId_;
     paired_[index].name = incomingDocument_["mac_name"] | targetName_;
     paired_[index].token = token;
-    store_.savePairedMacs(paired_, pairedCount_);
+    paired_[index].transport = bluetoothMode()
+                                   ? ConnectionMode::Bluetooth
+                                   : ConnectionMode::Wifi;
+    if (bluetoothMode()) {
+      paired_[index].bleAddress = blePeerAddress_;
+      paired_[index].bleAddressType = blePeerAddressType_;
+    }
+    const bool pairingSaved = store_.savePairedMacs(paired_, pairedCount_);
+    if (!pairingSaved) {
+      Serial.println("[pairing] ERROR: paired computer was not saved");
+    }
     connectedName_ = paired_[index].name;
     state_ = LinkState::Connected;
     setAudioReady(true);
@@ -494,12 +1015,24 @@ void PairingManager::handleLine(const String& line) {
       settings_->lastMacId = targetId_;
       persistSettings();
     }
+    Serial.printf("[pairing] paired target=%s saved=%s\n", targetId_.c_str(),
+                  pairingSaved ? "yes" : "NO");
     return;
   }
   if (type == "hello_ok") {
     parseBridgeMetadata(incomingDocument_);
     connectedName_ = incomingDocument_["mac_name"] | targetName_;
     state_ = LinkState::Connected;
+    blePairingDeadlineMs_ = 0;
+    const int index = pairedIndexById(targetId_);
+    if (index >= 0 && bluetoothMode()) {
+      paired_[index].transport = ConnectionMode::Bluetooth;
+      paired_[index].bleAddress = blePeerAddress_;
+      paired_[index].bleAddressType = blePeerAddressType_;
+      if (!store_.savePairedMacs(paired_, pairedCount_)) {
+        Serial.println("[pairing] ERROR: Bluetooth bond metadata was not saved");
+      }
+    }
     setAudioReady(true);
     reconnectDelayMs_ = kReconnectMinMs;
     requestAgentList();
@@ -507,13 +1040,19 @@ void PairingManager::handleLine(const String& line) {
       settings_->lastMacId = targetId_;
       persistSettings();
     }
+    Serial.printf("[pairing] authenticated target=%s with saved token\n",
+                  targetId_.c_str());
     return;
   }
   if (type == "auth_error") {
+    Serial.printf("[pairing] saved token rejected target=%s; pairing required\n",
+                  targetId_.c_str());
     const int index = pairedIndexById(targetId_);
     if (index >= 0) {
       paired_[index].token.clear();
-      store_.savePairedMacs(paired_, pairedCount_);
+      if (!store_.savePairedMacs(paired_, pairedCount_)) {
+        Serial.println("[pairing] ERROR: invalid token state was not saved");
+      }
     }
     targetToken_.clear();
     state_ = LinkState::AwaitingPairCode;
@@ -611,7 +1150,7 @@ void PairingManager::parseAgentSnapshot(JsonDocument& document) {
     if (agentCount_ >= kMaxAgentSessions) break;
     AgentSession& agent = agents_[agentCount_++];
     agent.id = item["id"].as<String>();
-    agent.title = item["title"] | "Codex session";
+    agent.title = item["title"] | "Session";
     agent.project = item["project"].as<String>();
     agent.activity = item["activity"] | "Session ready";
     agent.status = parseAgentStatus(item["status"]);
@@ -634,7 +1173,13 @@ void PairingManager::requestAgentList() {
 }
 
 void PairingManager::disconnect(bool manual) {
-  cancelConnectionAttempt();
+  if (bluetoothMode()) {
+    if (bleServer_ && bleConnHandle_ != 0xFFFF) {
+      bleServer_->disconnect(bleConnHandle_);
+    }
+  } else {
+    cancelConnectionAttempt();
+  }
   incoming_.clear();
   connectedName_.clear();
   state_ = LinkState::Offline;
@@ -655,7 +1200,19 @@ void PairingManager::disconnect(bool manual) {
 }
 
 void PairingManager::connectionLost() {
+  if (bluetoothMode()) {
+    connectedName_.clear();
+    state_ = LinkState::Discovering;
+    agentOnline_ = false;
+    setAudioReady(false);
+    if (bleServer_ && bleConnHandle_ != 0xFFFF) {
+      bleServer_->disconnect(bleConnHandle_);
+    }
+    return;
+  }
   cancelConnectionAttempt();
+  Serial.printf("[pairing] TCP connection lost target=%s; reconnect scheduled\n",
+                targetId_.c_str());
   connectedName_.clear();
   state_ = LinkState::Offline;
   agentOnline_ = false;
@@ -672,6 +1229,10 @@ void PairingManager::scheduleReconnect() {
 bool PairingManager::deletePairing(size_t index) {
   if (index >= pairedCount_) return false;
   if (pairedCurrent(index)) disconnect(true);
+  if (bluetoothMode() && !paired_[index].bleAddress.isEmpty()) {
+    NimBLEDevice::deleteBond(NimBLEAddress(
+        paired_[index].bleAddress.c_str(), paired_[index].bleAddressType));
+  }
   for (size_t i = index; i + 1 < pairedCount_; ++i) paired_[i] = paired_[i + 1];
   --pairedCount_;
   return store_.savePairedMacs(paired_, pairedCount_);
@@ -717,6 +1278,7 @@ int PairingManager::discoveredIndexById(const String& id) const {
 }
 
 bool PairingManager::pairedOnline(size_t index) const {
+  if (bluetoothMode()) return pairedCurrent(index);
   return index < pairedCount_ && discoveredIndexById(paired_[index].id) >= 0;
 }
 
@@ -726,19 +1288,23 @@ bool PairingManager::pairedCurrent(size_t index) const {
 
 String PairingManager::statusText() const {
   switch (state_) {
-    case LinkState::Offline: return "Mac offline";
-    case LinkState::Discovering: return "Finding Mac...";
+    case LinkState::Offline:
+      return bluetoothMode() ? "Bluetooth disconnected" : "Computer offline";
+    case LinkState::Discovering:
+      return bluetoothMode() ? "Bluetooth advertising" : "Finding computer...";
     case LinkState::Connecting: return "Connecting...";
     case LinkState::AwaitingPairCode: return "Enter pair code";
     case LinkState::Authenticating: return "Authenticating...";
     case LinkState::Connected: return String("Connected ") + connectedName_;
     case LinkState::Incompatible: return "Update required";
   }
-  return "Mac offline";
+  return bluetoothMode() ? "Bluetooth disconnected" : "Computer offline";
 }
 
 void PairingManager::persistSettings() {
-  if (settings_) store_.saveSettings(*settings_);
+  if (settings_ && !store_.saveSettings(*settings_)) {
+    Serial.println("[nvs] ERROR: device settings were not saved");
+  }
 }
 
 void PairingManager::setAudioReady(bool ready) {

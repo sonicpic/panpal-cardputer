@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import struct
+import sys
 import threading
 from collections import OrderedDict
 from typing import Any
@@ -9,6 +10,13 @@ from .protocol import AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME
 
 CARDBRIDGE_FEED_DEVICE = "CardBridge Microphone Feed"
 BLACKHOLE_DEVICE = "BlackHole 2ch"
+VB_CABLE_INPUT_DEVICE = "CABLE Input"
+
+
+def default_audio_device() -> str:
+    """Return the safe virtual-microphone feed expected on this platform."""
+
+    return VB_CABLE_INPUT_DEVICE if sys.platform == "win32" else CARDBRIDGE_FEED_DEVICE
 
 
 class JitterBuffer:
@@ -120,12 +128,12 @@ class NullAudioOutput:
 class BlackHoleAudioOutput(NullAudioOutput):
     def __init__(
         self,
-        device_name: str = CARDBRIDGE_FEED_DEVICE,
+        device_name: str | None = None,
         target_ms: int = 100,
         gain: float = 20.0,
     ) -> None:
         super().__init__(target_ms)
-        self.device_name = device_name
+        self.device_name = device_name or default_audio_device()
         # Make-up gain. The ES8311 is kept at its clean 0dB setting, where close
         # speech only reaches ~1% full scale; raising the codec's own gain
         # amplified its noise floor faster than the voice. Applying the gain here
@@ -172,6 +180,11 @@ class BlackHoleAudioOutput(NullAudioOutput):
                 if candidates:
                     break
             if not candidates:
+                if sys.platform == "win32":
+                    raise RuntimeError(
+                        "virtual microphone output was not found; install VB-CABLE "
+                        "and select its 'CABLE Input' playback device"
+                    )
                 raise RuntimeError(
                     "audio output device was not found; install CardBridge Microphone "
                     f"or {BLACKHOLE_DEVICE}"

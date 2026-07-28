@@ -5,6 +5,7 @@ import unittest
 from cardbridge._generated_version import (
     DEVICE_PROTOCOL_MAJOR,
     DEVICE_PROTOCOL_MINOR,
+    FIRMWARE_VERSION,
 )
 from cardbridge.protocol import ProtocolError
 from cardbridge.versioning import CompatibilityError, negotiate_device
@@ -24,7 +25,7 @@ class DeviceVersioningTests(unittest.TestCase):
             {
                 "device": {
                     "model": "cardputer-adv",
-                    "firmware": "0.2.0",
+                    "firmware": FIRMWARE_VERSION,
                     "build": 1,
                 },
                 "protocol": {"major": DEVICE_PROTOCOL_MAJOR, "minor": 99},

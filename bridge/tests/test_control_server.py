@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,7 @@ from cardbridge.protocol import encode_message
 from cardbridge.server import BridgeApp
 
 
+@unittest.skipIf(sys.platform == "win32", "Unix sockets are a macOS/Linux-only control API")
 class AgentControlServerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -86,6 +88,7 @@ class AgentControlServerTests(unittest.IsolatedAsyncioTestCase):
         await writer.wait_closed()
 
 
+@unittest.skipIf(sys.platform == "win32", "Unix sockets are a macOS/Linux-only control API")
 class BridgeControlIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

@@ -16,6 +16,7 @@ class ConnectedDevice:
     peer_ip: str
     token: str = field(repr=False)
     compatibility: DeviceCompatibility = field(repr=False)
+    transport: str = "wifi"
     connected_at_ms: int = field(default_factory=now_ms)
     last_seen_ms: int = field(default_factory=now_ms)
     audio_packets: int = 0
@@ -27,6 +28,7 @@ class ConnectedDevice:
         return {
             "id": self.device_id,
             "ip": self.peer_ip,
+            "transport": self.transport,
             "model": self.compatibility.model or "cardputer",
             "firmware": self.compatibility.firmware_version or "unknown",
             "firmware_build": self.compatibility.firmware_build,

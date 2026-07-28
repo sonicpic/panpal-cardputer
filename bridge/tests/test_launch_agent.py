@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
 import unittest
 from pathlib import Path
 
 from install_launch_agent import build_launch_path
 
 
+@unittest.skipIf(sys.platform == "win32", "LaunchAgent is a macOS-only integration")
 class LaunchAgentInstallerTests(unittest.TestCase):
     def test_service_path_includes_detected_node_and_codex_directories(self) -> None:
         commands = {

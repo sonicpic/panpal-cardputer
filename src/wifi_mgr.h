@@ -20,11 +20,16 @@ class WifiManager {
   void startScan();
   bool connectSaved(size_t index);
   bool addAndConnect(const String& ssid, const String& password);
+  bool addEnterpriseAndConnect(const String& ssid, const String& username,
+                               const String& password);
   bool forget(const String& ssid);
 
   bool connected() const { return WiFi.status() == WL_CONNECTED; }
   bool scanning() const { return scanning_ || pendingScan_; }
   bool needsSetup() const { return needsSetup_; }
+  bool enterpriseCredentialsRejected(const String& ssid) const {
+    return enterpriseAuthRejected_ && enterpriseAuthRejectedSsid_ == ssid;
+  }
   void acknowledgeSetup() { needsSetup_ = false; }
   String currentSsid() const { return connected() ? WiFi.SSID() : String(); }
   int32_t rssi() const { return connected() ? WiFi.RSSI() : -127; }
@@ -38,9 +43,11 @@ class WifiManager {
   const WifiScanResult& scanResult(size_t index) const { return scan_[index]; }
 
  private:
+  void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info);
   static void scanTaskEntry(void* argument);
   void tryKnownNetworks();
   bool startConnection(size_t index);
+  bool startEnterpriseConnection(const WifiNetwork& network);
   void runPendingScan();
   void pollScanResult();
   void collectResults(int16_t result);
@@ -59,6 +66,10 @@ class WifiManager {
   bool scanEverSucceeded_ = false;
   uint32_t connectStartedMs_ = 0;
   uint32_t lastReconnectMs_ = 0;
+  // Set on the network event task and consumed on the Arduino loop task.
+  volatile uint8_t lastDisconnectReason_ = 0;
+  bool enterpriseAuthRejected_ = false;
+  String enterpriseAuthRejectedSsid_;
   size_t reconnectIndex_ = 0;
   size_t reconnectAttempts_ = 0;
 };

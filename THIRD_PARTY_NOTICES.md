@@ -10,6 +10,7 @@ redistribution that includes the component.
 | Source Han Sans CN Medium | `assets/fonts/cardbridge-ui-13.bff` and font generator | SIL Open Font License 1.1; see [`assets/fonts/LICENSE-SourceHanSans.txt`](assets/fonts/LICENSE-SourceHanSans.txt). |
 | Sparkle 2.9.4 | macOS updater framework | Sparkle project license and notices are downloaded and checksum-verified by `macos/scripts/bootstrap_sparkle.sh`. |
 | M5Cardputer / M5Unified / M5GFX | firmware dependency | Follow the licenses shipped by the corresponding PlatformIO packages. Versions are pinned in `platformio.ini`. |
+| Espressif ESP-IDF WPA supplicant | `firmware/vendor/esp32s3/libwpa_supplicant.a` | Apache-2.0; built from IDF library revision `858a988d6e` with the enterprise legacy-TLS client. See [`firmware/vendor/esp32s3/LICENSE-ESP-IDF-APACHE-2.0.txt`](firmware/vendor/esp32s3/LICENSE-ESP-IDF-APACHE-2.0.txt) and the adjacent README for provenance and checksum. |
 | ArduinoJson 6.21.5 | firmware dependency | MIT; version is pinned in `platformio.ini`. |
 | NumPy, sounddevice, zeroconf, PyObjC | Python Bridge dependencies | Follow the licenses shipped by the installed Python distributions. Build inputs are listed in `bridge/requirements-build.txt`. |
 

@@ -7,6 +7,9 @@
 namespace cardbridge {
 namespace {
 
+constexpr uint32_t kKeyAckTimeoutMs = 300;
+constexpr uint8_t kKeyMaxAttempts = 5;
+
 void copyKey(char* destination, size_t capacity, const char* source) {
   if (!source || capacity == 0) return;
   strlcpy(destination, source, capacity);
@@ -15,8 +18,17 @@ void copyKey(char* destination, size_t capacity, const char* source) {
 }  // namespace
 
 void KeyTransmitter::tick(bool uiConsumesKeyboard) {
-  if (uiConsumesKeyboard || !pairing_.connected()) {
+  if (!pairing_.connected()) {
+    previousCount_ = 0;
+    clearPending();
+    seenAckRevision_ = pairing_.keyAckRevision();
+    return;
+  }
+
+  processPending();
+  if (uiConsumesKeyboard) {
     releaseAll();
+    processPending();
     return;
   }
 
@@ -30,6 +42,7 @@ void KeyTransmitter::tick(bool uiConsumesKeyboard) {
   }
   memcpy(previous_, current, sizeof(ActiveKey) * currentCount);
   previousCount_ = currentCount;
+  processPending();
 }
 
 size_t KeyTransmitter::buildCurrent(ActiveKey* output, size_t capacity) {
@@ -128,13 +141,85 @@ void KeyTransmitter::send(const ActiveKey& key, const char* action) {
     if (strcmp(key.key, "alt") == 0) option = false;
     if (strcmp(key.key, "ctrl") == 0) control = false;
   }
-  if (strcmp(action, "down") == 0) ++sentKeys_;
-  pairing_.sendKey(key.key, action, cmd, shift, option, control);
+  if (pendingCount_ >= kPendingCapacity) {
+    Serial.printf("[keys] queue full; dropped %s %s\n", key.key, action);
+    return;
+  }
+  const size_t tail = (pendingHead_ + pendingCount_) % kPendingCapacity;
+  PendingKey& pending = pending_[tail];
+  pending.key = key;
+  pending.key.cmd = cmd;
+  pending.key.shift = shift;
+  pending.key.option = option;
+  pending.key.control = control;
+  pending.down = strcmp(action, "down") == 0;
+  if (++nextRequestId_ == 0) ++nextRequestId_;
+  pending.requestId = nextRequestId_;
+  pending.sentMs = 0;
+  pending.attempts = 0;
+  ++pendingCount_;
+  if (pending.down) ++sentKeys_;
 }
 
 void KeyTransmitter::releaseAll() {
   for (size_t i = 0; i < previousCount_; ++i) send(previous_[i], "up");
   previousCount_ = 0;
+}
+
+void KeyTransmitter::processPending() {
+  if (!pendingCount_) return;
+  PendingKey& pending = pending_[pendingHead_];
+  const uint32_t revision = pairing_.keyAckRevision();
+  if (revision != seenAckRevision_) {
+    seenAckRevision_ = revision;
+    if (pairing_.keyAckRequestId() == pending.requestId) {
+      if (!pairing_.keyAckOk()) {
+        Serial.printf("[keys] request=%lu rejected: %s\n",
+                      static_cast<unsigned long>(pending.requestId),
+                      pairing_.keyAckError().c_str());
+      }
+      popPending();
+      if (!pendingCount_) return;
+    }
+  }
+
+  PendingKey& current = pending_[pendingHead_];
+  if (current.attempts == 0 || millis() - current.sentMs >= kKeyAckTimeoutMs) {
+    if (current.attempts >= kKeyMaxAttempts) {
+      Serial.printf("[keys] request=%lu timed out after %u attempts\n",
+                    static_cast<unsigned long>(current.requestId),
+                    current.attempts);
+      popPending();
+      if (!pendingCount_) return;
+    }
+    transmitPending();
+  }
+}
+
+void KeyTransmitter::transmitPending() {
+  if (!pendingCount_) return;
+  PendingKey& pending = pending_[pendingHead_];
+  const char* action = pending.down ? "down" : "up";
+  const bool queued = pairing_.sendKey(
+      pending.key.key, action, pending.key.cmd, pending.key.shift,
+      pending.key.option, pending.key.control, pending.requestId);
+  ++pending.attempts;
+  pending.sentMs = millis();
+  Serial.printf("[keys] %s %s request=%lu attempt=%u queued=%d\n",
+                pending.key.key, action,
+                static_cast<unsigned long>(pending.requestId),
+                pending.attempts, queued);
+}
+
+void KeyTransmitter::popPending() {
+  if (!pendingCount_) return;
+  pendingHead_ = (pendingHead_ + 1) % kPendingCapacity;
+  --pendingCount_;
+}
+
+void KeyTransmitter::clearPending() {
+  pendingHead_ = 0;
+  pendingCount_ = 0;
 }
 
 }  // namespace cardbridge

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import ctypes
 import unittest
 
-from cardbridge.keyboard import KEY_CODES, KeyInjector
+from cardbridge.keyboard import KEY_CODES, KeyInjector, _WinInput
 
 
 class KeyboardTests(unittest.TestCase):
+    def test_windows_input_structure_matches_native_abi(self) -> None:
+        expected = 40 if ctypes.sizeof(ctypes.c_void_p) == 8 else 28
+        self.assertEqual(ctypes.sizeof(_WinInput), expected)
+
     def test_configurable_typeless_function_keys_are_supported(self) -> None:
         injector = KeyInjector(dry_run=True)
         for number in range(13, 17):

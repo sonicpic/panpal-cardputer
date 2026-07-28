@@ -6,10 +6,10 @@
 
 namespace cardbridge {
 
-inline constexpr char kFirmwareVersion[] = "0.3.0";
-inline constexpr uint32_t kFirmwareBuild = 8;
+inline constexpr char kFirmwareVersion[] = "0.6.5";
+inline constexpr uint32_t kFirmwareBuild = 26;
 inline constexpr uint8_t kDeviceProtocolMajor = 2;
-inline constexpr uint8_t kDeviceProtocolMinor = 0;
+inline constexpr uint8_t kDeviceProtocolMinor = 4;
 inline constexpr bool kSupportLegacyProtocol1 = true;
 inline constexpr const char* kDeviceCapabilities[] = {
     "control.keys.v1",
@@ -17,6 +17,14 @@ inline constexpr const char* kDeviceCapabilities[] = {
     "agents.snapshot.v1",
     "agents.phase.v1",
     "quota.v1",
+    "wifi.enterprise.peap.v1",
+    "control.voice.v1",
+    "control.voice-ack.v1",
+    "control.voice-enter-policy.v1",
+    "control.keys-ack.v1",
+    "transport.select.v1",
+    "transport.ble-gatt.v1",
+    "audio.ble-ima-adpcm16k.v1",
 };
 inline constexpr size_t kDeviceCapabilityCount =
     sizeof(kDeviceCapabilities) / sizeof(kDeviceCapabilities[0]);

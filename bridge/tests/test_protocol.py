@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import os
+import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,14 +14,60 @@ from unittest.mock import patch
 from cardbridge._generated_version import CONFIG_SCHEMA
 from cardbridge.config import BridgeConfig
 from cardbridge.protocol import (
+    BLE_ADPCM_BYTES,
+    BLE_AUDIO_BODY_HEADER,
     AUDIO_PAYLOAD_SIZE,
     MAX_JSON_LINE,
     ProtocolError,
     decode_message,
     encode_message,
     pack_audio,
+    token_bytes,
+    unpack_ble_audio,
     unpack_audio,
 )
+
+
+def encode_test_adpcm(samples: list[int]) -> tuple[int, int, bytes]:
+    index_table = (-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8)
+    step_table = (
+        7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31,
+        34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130,
+        143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449,
+        494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411,
+        1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026,
+        4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442,
+        11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623,
+        27086, 29794, 32767,
+    )
+    initial = samples[0]
+    predictor = initial
+    index = 0
+    output = bytearray(BLE_ADPCM_BYTES)
+    for sample_index, sample in enumerate(samples[1:]):
+        step = step_table[index]
+        difference = sample - predictor
+        code = 0
+        if difference < 0:
+            code = 8
+            difference = -difference
+        delta = step >> 3
+        if difference >= step:
+            code |= 4
+            difference -= step
+            delta += step
+        if difference >= step >> 1:
+            code |= 2
+            difference -= step >> 1
+            delta += step >> 1
+        if difference >= step >> 2:
+            code |= 1
+            delta += step >> 2
+        predictor += -delta if code & 8 else delta
+        predictor = max(-32768, min(32767, predictor))
+        index = max(0, min(88, index + index_table[code]))
+        output[sample_index // 2] |= code << (4 if sample_index & 1 else 0)
+    return initial, 0, bytes(output)
 
 
 class ProtocolTests(unittest.TestCase):
@@ -40,6 +90,24 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             decode_message(json.dumps(["not", "an", "object"]).encode())
 
+    def test_ble_adpcm_round_trip_and_hmac(self) -> None:
+        token = "34" * 32
+        samples = [max(-30000, min(30000, (index - 160) * 170)) for index in range(320)]
+        predictor, adpcm_index, encoded = encode_test_adpcm(samples)
+        authenticated = BLE_AUDIO_BODY_HEADER.pack(
+            7, 42, 840, predictor, adpcm_index, 0
+        ) + encoded
+        signature = hmac.new(
+            token_bytes(token), authenticated, hashlib.sha256
+        ).digest()[:8]
+        packet = unpack_ble_audio(token, authenticated + signature)
+        decoded = struct.unpack("<320h", packet.payload)
+        self.assertEqual((packet.stream_id, packet.sequence, packet.timestamp_ms), (7, 42, 840))
+        self.assertEqual(len(decoded), 320)
+        self.assertLess(max(abs(left - right) for left, right in zip(samples, decoded)), 5000)
+        with self.assertRaises(ProtocolError):
+            unpack_ble_audio(token, authenticated + bytes([signature[0] ^ 1]) + signature[1:])
+
     def test_json_line_uses_compact_utf8_for_session_titles(self) -> None:
         message = {"t": "agent_status", "title": "会话管理与宠物动画"}
         encoded = encode_message(message)
@@ -59,11 +127,12 @@ class ConfigTests(unittest.TestCase):
             config_directory.mkdir(mode=0o755)
             with patch.object(Path, "home", return_value=home):
                 BridgeConfig()
-            self.assertEqual(os.stat(config_directory).st_mode & 0o777, 0o700)
-            self.assertEqual(
-                os.stat(config_directory / "config.json").st_mode & 0o777,
-                0o600,
-            )
+            if sys.platform != "win32":
+                self.assertEqual(os.stat(config_directory).st_mode & 0o777, 0o700)
+                self.assertEqual(
+                    os.stat(config_directory / "config.json").st_mode & 0o777,
+                    0o600,
+                )
 
     def test_pairing_persists_a_32_byte_random_token(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -77,7 +146,8 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(reloaded.token_for("device-1"), token)
             self.assertEqual(reloaded.data["config_schema"], CONFIG_SCHEMA)
             self.assertNotIn("version", reloaded.data)
-            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            if sys.platform != "win32":
+                self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
 
     def test_plaintext_pairing_token_is_migrated_to_external_store(self) -> None:
         class MemoryTokenStore:
@@ -146,6 +216,16 @@ class ConfigTests(unittest.TestCase):
             persisted = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(persisted["config_schema"], CONFIG_SCHEMA)
             self.assertNotIn("version", persisted)
+
+    def test_voice_defaults_are_added_without_exposing_pairing_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            config = BridgeConfig(path)
+            voice = config.voice_settings()
+            self.assertEqual(voice["virtual_input_device"], "CABLE Output")
+            self.assertEqual(voice["restore_mode"], "previous")
+            self.assertEqual(voice["trigger_mode"], "hold")
+            self.assertEqual(config.bridge_transport(), "both")
 
     def test_newer_config_schema_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

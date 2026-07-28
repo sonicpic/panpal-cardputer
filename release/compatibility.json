@@ -4,34 +4,42 @@
     "minor": 0
   },
   "bridge_agent": {
-    "build": 9,
-    "version": "1.1.0"
+    "build": 28,
+    "version": "1.4.5"
   },
   "capabilities": [
     "control.keys.v1",
     "audio.pcm16-16k.v1",
     "agents.snapshot.v1",
     "agents.phase.v1",
-    "quota.v1"
+    "quota.v1",
+    "wifi.enterprise.peap.v1",
+    "control.voice.v1",
+    "control.voice-ack.v1",
+    "control.voice-enter-policy.v1",
+    "control.keys-ack.v1",
+    "transport.select.v1",
+    "transport.ble-gatt.v1",
+    "audio.ble-ima-adpcm16k.v1"
   ],
   "device_protocol": {
     "major": 2,
-    "minor": 0
+    "minor": 4
   },
   "firmware": {
-    "build": 8,
-    "version": "0.3.0"
+    "build": 26,
+    "version": "0.6.5"
   },
   "legacy_protocol_1": true,
   "mac_app": {
     "architectures": [
       "arm64"
     ],
-    "build": 9,
+    "build": 28,
     "minimum_macos": "13.0",
-    "version": "1.1.0"
+    "version": "1.4.5"
   },
-  "minimum_firmware": "0.1.0",
-  "release": "1.1.0",
+  "minimum_firmware": "0.4.0",
+  "release": "1.4.5",
   "schema": 1
 }

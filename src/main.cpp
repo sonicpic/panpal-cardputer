@@ -7,6 +7,7 @@
 #include "serial_console.h"
 #include "settings_store.h"
 #include "ui.h"
+#include "voice_control.h"
 #include "wifi_mgr.h"
 
 using namespace cardbridge;
@@ -18,13 +19,14 @@ DeviceSettings settings;
 WifiManager wifi(settingsStore);
 PairingManager pairing(settingsStore, wifi);
 AudioTransmitter audio(pairing);
+VoiceController voice(pairing, audio, settings);
 KeyTransmitter keys(pairing, settings);
 DeviceUi ui(settingsStore, wifi, pairing, audio, keys, settings);
 SerialConsole console(settingsStore, wifi, pairing, audio, ui, settings);
 
 void printBootInfo() {
   Serial.println();
-  Serial.println("CODEX DECK / Cardputer ADV");
+  Serial.println("PANPAL / Cardputer ADV");
   Serial.printf("Firmware: %s build %lu, protocol %u.%u\n", kFirmwareVersion,
                 static_cast<unsigned long>(kFirmwareBuild),
                 kDeviceProtocolMajor, kDeviceProtocolMinor);
@@ -32,6 +34,12 @@ void printBootInfo() {
                 ESP.getChipModel(), ESP.getChipRevision(),
                 ESP.getFlashChipSize(), ESP.getFreeHeap());
   Serial.println("Audio: PCM16 mono 16kHz / 20ms, TCP:7788 UDP:7789");
+#if defined(CODEX_DECK_ENTERPRISE_TLS_COMPAT) && \
+    CODEX_DECK_ENTERPRISE_TLS_COMPAT
+  Serial.println("Enterprise TLS: supplicant compatibility 1.0-1.2");
+#else
+  Serial.println("Enterprise TLS: MbedTLS 1.2");
+#endif
 }
 
 }  // namespace
@@ -51,18 +59,29 @@ void setup() {
 
   if (!settingsStore.begin()) Serial.println("ERROR: NVS initialization failed");
   settings = settingsStore.loadSettings();
-  wifi.begin();
+  if (!settings.connectionModeChosen) {
+    Serial.println("Connection: not selected (wireless disabled until setup)");
+  } else if (settings.connectionMode == ConnectionMode::Wifi) {
+    wifi.begin();
+  } else {
+    Serial.println("Connection: Bluetooth (Wi-Fi/mDNS disabled)");
+  }
   pairing.begin(&settings);
   if (!audio.begin(settings.micMuted)) Serial.println("ERROR: audio tasks failed");
+  voice.begin();
   ui.begin();
 }
 
 void loop() {
   M5Cardputer.update();
   console.tick();
-  wifi.tick();
-  pairing.tick();
+  if (settings.connectionModeChosen &&
+      settings.connectionMode == ConnectionMode::Wifi) {
+    wifi.tick();
+  }
+  if (settings.connectionModeChosen) pairing.tick();
+  voice.tick();
   ui.tick();
-  keys.tick(ui.consumesKeyboard());
+  keys.tick(ui.consumesKeyboard() || voice.consumesKeyboard());
   delay(5);
 }

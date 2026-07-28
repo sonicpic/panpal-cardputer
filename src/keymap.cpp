@@ -5,13 +5,11 @@
 namespace cardbridge {
 
 const char* mapFnKey(uint8_t key, uint8_t typelessFunctionKey) {
+  (void)typelessFunctionKey;  // Kept in the signature for stored-setting compatibility.
   switch (key) {
-    case ' ': {  // Dedicated Typeless hold-to-record key: Fn+Space.
-      static const char* functionKeys[] = {"f13", "f14", "f15", "f16"};
-      const uint8_t index = typelessFunctionKey >= 13 && typelessFunctionKey <= 16
-                                ? typelessFunctionKey - 13 : 0;
-      return functionKeys[index];
-    }
+    // Fn+Space is consumed by VoiceController and sent as semantic voice
+    // down/up edges. It intentionally does not masquerade as F13.
+    case ' ': return nullptr;
     // Follow the arrow legends printed on the Cardputer keyboard.
     case ';': return "up";
     case ',': return "left";

@@ -14,13 +14,18 @@ class SettingsStore {
   size_t loadWifiNetworks(WifiNetwork* out, size_t capacity);
   bool saveWifiNetworks(const WifiNetwork* networks, size_t count);
 
+  bool wifiDriverMigrationComplete();
+  bool markWifiDriverMigrationComplete();
+
   size_t loadPairedMacs(PairedMac* out, size_t capacity);
   bool savePairedMacs(const PairedMac* macs, size_t count);
 
   DeviceSettings loadSettings();
   bool saveSettings(const DeviceSettings& settings);
+  bool saveConnectionMode(ConnectionMode mode);
 
  private:
+  bool compactIfNeeded();
   Preferences preferences_;
   bool ready_ = false;
 };

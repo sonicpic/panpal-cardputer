@@ -3,21 +3,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
 
-from .audio import CARDBRIDGE_FEED_DEVICE
+from .audio import default_audio_device
 from .control_server import default_control_socket
 from .server import BridgeApp
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Cardputer ADV Mac bridge")
+    result = argparse.ArgumentParser(description="Cardputer ADV bridge")
     result.add_argument("--host", default="0.0.0.0")
     result.add_argument("--port", type=int, default=7788, help="TCP control port")
     result.add_argument("--udp-port", type=int, default=7789)
-    result.add_argument("--audio-device", default=CARDBRIDGE_FEED_DEVICE)
+    result.add_argument("--audio-device", default=default_audio_device())
     result.add_argument("--jitter-ms", type=int, default=100)
     result.add_argument("--gain", type=float, default=20.0, help="software make-up gain into the microphone bridge")
     result.add_argument("--config", type=Path)
@@ -26,12 +27,15 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--no-mdns", action="store_true", help="disable service discovery advertisement")
     result.add_argument("--record", type=Path, help="also write received PCM to this WAV file (diagnostic)")
     result.add_argument("--no-codex", action="store_true", help="disable Codex session monitoring")
+    hooks = result.add_mutually_exclusive_group()
+    hooks.add_argument("--install-hooks", action="store_true", help="install the optional Codex Hooks")
+    hooks.add_argument("--uninstall-hooks", action="store_true", help="remove only PanPal's Hooks")
     result.add_argument("--hook-port", type=int, default=7790, help="local-only Codex Hook UDP port")
     result.add_argument(
         "--control-socket",
         type=Path,
-        default=default_control_socket(),
-        help="owner-only local status/control socket for the menu bar app",
+        default=None if sys.platform == "win32" else default_control_socket(),
+        help="owner-only local status/control socket (macOS only by default)",
     )
     result.add_argument(
         "--no-control-socket",
@@ -88,10 +92,28 @@ def main() -> None:
 
         raise SystemExit(report_hook())
     args = parser().parse_args()
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if sys.platform == "win32":
+        app_data = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if app_data:
+            log_directory = Path(app_data) / "CodexDeck" / "logs"
+            log_directory.mkdir(parents=True, exist_ok=True)
+            handlers.append(logging.FileHandler(log_directory / "bridge.log", encoding="utf-8"))
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=handlers,
     )
+    if args.install_hooks or args.uninstall_hooks:
+        from .codex_hooks import update_hooks
+
+        try:
+            update_hooks(args.install_hooks)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Could not update Codex Hooks: {exc}") from exc
+        action = "installed" if args.install_hooks else "removed"
+        print(f"PanPal Hooks {action}. Restart Codex and approve its trust prompt.")
+        return
     try:
         asyncio.run(run(args))
     except RuntimeError as exc:

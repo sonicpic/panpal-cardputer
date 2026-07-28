@@ -1,4 +1,11 @@
 .pio/
+.pio-core/
+.dummy/
+managed_components/
+/CMakeLists.txt
+/dependencies.lock
+/sdkconfig.cardputer
+/sdkconfig.defaults
 .DS_Store
 .venv/
 __pycache__/
@@ -13,3 +20,7 @@ macos/dist/
 macos/App/icon-work/
 macos/App/CardBridge.icns
 driver/build/
+build/
+dist/
+windows/.venv-build/
+artifacts/

@@ -18,10 +18,11 @@ class AudioTransmitter {
   explicit AudioTransmitter(PairingManager& pairing) : pairing_(pairing) {}
 
   bool begin(bool muted);
-  // Remote keyboard mode owns the microphone. Keep this separate from the
-  // user's persistent mute preference so leaving Remote never clears mute.
+  // VoiceController owns the active edge. Keep it separate from the user's
+  // persistent mute preference so ending push-to-talk never clears mute.
   void setActive(bool active);
   void setMuted(bool muted);
+  void requestNotification(uint8_t tone, uint8_t volume);
   bool active() const { return active_; }
   bool muted() const { return muted_; }
   uint8_t level() const { return level_; }
@@ -61,6 +62,7 @@ class AudioTransmitter {
   void requestPipelineRestart();
   bool sendFrame(const AudioFrame& frame, const IPAddress& ip,
                  const uint8_t token[32]);
+  void playNotification(uint8_t tone, uint8_t volume);
 
   PairingManager& pairing_;
   QueueHandle_t queue_ = nullptr;
@@ -71,6 +73,9 @@ class AudioTransmitter {
   volatile bool active_ = false;
   volatile bool muted_ = false;
   volatile bool captureRestartRequested_ = false;
+  volatile bool notificationPending_ = false;
+  volatile uint8_t notificationTone_ = 0;
+  volatile uint8_t notificationVolume_ = 0;
   volatile uint8_t level_ = 0;
   volatile uint16_t rawPeak_ = 0;
   volatile uint32_t droppedFrames_ = 0;

@@ -18,6 +18,21 @@ struct __attribute__((packed)) AudioPacketHeader {
 
 bool AudioTransmitter::begin(bool muted) {
   muted_ = muted;
+  // M5Unified was intentionally started with internal_spk=false so it never
+  // owns the shared ES8311/I2S pins while the microphone is running. Configure
+  // the ADV speaker explicitly, on I2S1, and only start it inside the capture
+  // task after I2S0 microphone capture has stopped.
+  auto speakerConfig = M5Cardputer.Speaker.config();
+  speakerConfig.pin_mck = I2S_GPIO_UNUSED;
+  speakerConfig.pin_bck = GPIO_NUM_41;
+  speakerConfig.pin_ws = GPIO_NUM_43;
+  speakerConfig.pin_data_out = GPIO_NUM_42;
+  speakerConfig.i2s_port = I2S_NUM_1;
+  speakerConfig.sample_rate = 48000;
+  speakerConfig.magnification = 16;
+  speakerConfig.stereo = false;
+  speakerConfig.buzzer = false;
+  M5Cardputer.Speaker.config(speakerConfig);
   queue_ = xQueueCreate(kAudioRingFrames, sizeof(AudioFrame));
   if (!queue_) return false;
   const BaseType_t captureOk = xTaskCreatePinnedToCore(
@@ -43,8 +58,71 @@ void AudioTransmitter::setMuted(bool muted) {
   }
 }
 
+void AudioTransmitter::requestNotification(uint8_t tone, uint8_t volume) {
+  if (tone == 0 || volume == 0) return;
+  notificationTone_ = min<uint8_t>(tone, 3);
+  notificationVolume_ = volume;
+  notificationPending_ = true;
+}
+
+void AudioTransmitter::playNotification(uint8_t tone, uint8_t volume) {
+  if (!M5Cardputer.Speaker.begin()) {
+    Serial.println("[audio] notification speaker start failed");
+    return;
+  }
+  // Start BCLK before bringing the ES8311 DAC out of reset. This mirrors the
+  // proven microphone startup ordering and lets the codec PLL lock cleanly.
+  vTaskDelay(pdMS_TO_TICKS(20));
+  auto write = [](uint8_t reg, uint8_t value) {
+    return M5.In_I2C.writeRegister8(0x18, reg, value, 100000);
+  };
+  write(0x00, 0x80);  // CSM power on
+  write(0x01, 0xB5);  // clock source = BCLK
+  write(0x02, 0x18);  // pre-multiplier x8
+  write(0x0D, 0x01);  // analog power up
+  write(0x12, 0x00);  // DAC power up
+  write(0x13, 0x10);  // headphone driver on
+  write(0x32, 0xBF);  // DAC digital volume 0 dB
+  write(0x37, 0x08);  // bypass DAC EQ
+  vTaskDelay(pdMS_TO_TICKS(30));
+  M5Cardputer.Speaker.setVolume(volume);
+  auto note = [](uint16_t frequency, uint16_t duration, uint16_t pause) {
+    const bool queued = M5Cardputer.Speaker.tone(frequency, duration);
+    if (!queued) Serial.println("[audio] notification tone queue failed");
+    vTaskDelay(pdMS_TO_TICKS(duration + pause));
+  };
+  switch (tone) {
+    case 2:
+      note(2350, 150, 30);
+      break;
+    case 3:
+      note(880, 90, 20);
+      note(1320, 150, 30);
+      break;
+    default:
+      note(1500, 75, 15);
+      note(2100, 120, 30);
+      break;
+  }
+  M5Cardputer.Speaker.stop();
+  write(0x32, 0x00);  // mute DAC before shutting down its analog path
+  write(0x13, 0x00);
+  write(0x12, 0x02);
+  write(0x0D, 0xFC);
+  write(0x0E, 0x6A);
+  write(0x00, 0x00);
+  M5Cardputer.Speaker.end();
+  gpio_reset_pin(GPIO_NUM_42);
+  gpio_reset_pin(GPIO_NUM_41);
+  gpio_reset_pin(GPIO_NUM_43);
+  gpio_reset_pin(GPIO_NUM_46);
+  Serial.printf("[audio] notification played tone=%u volume=%u\n", tone,
+                volume);
+}
+
 bool AudioTransmitter::streamingAllowed() const {
   if (!active_ || muted_) return false;
+  if (pairing_.bluetoothMode()) return pairing_.connected();
   IPAddress ignoredIp;
   uint8_t ignoredToken[32];
   return pairing_.audioEndpoint(ignoredIp, ignoredToken);
@@ -194,6 +272,14 @@ void AudioTransmitter::captureLoop() {
   uint8_t consecutiveReadFailures = 0;
   uint16_t consecutiveInvalidFrames = 0;
   for (;;) {
+    if (notificationPending_ && !streamingAllowed()) {
+      if (rxChannel_) micStop();
+      const uint8_t tone = notificationTone_;
+      const uint8_t volume = notificationVolume_;
+      notificationPending_ = false;
+      playNotification(tone, volume);
+      continue;
+    }
     if (!streamingAllowed()) {
       if (rxChannel_) {
         micStop();
@@ -322,6 +408,22 @@ void AudioTransmitter::senderLoop() {
   uint32_t lastAckProgressMs = 0;
   uint32_t sentAtAckProgress = 0;
   for (;;) {
+    if (pairing_.bluetoothMode()) {
+      if (!active_ || muted_ || !pairing_.connected()) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        continue;
+      }
+      if (xQueueReceive(queue_, &frame, pdMS_TO_TICKS(100)) != pdPASS) continue;
+      if (!active_ || muted_ || !pairing_.connected()) continue;
+      if (pairing_.sendBleAudio(frame.sequence, frame.timestampMs,
+                                frame.samples, kAudioSamplesPerFrame)) {
+        ++sent_;
+      } else {
+        ++droppedFrames_;
+        ++sendFail_;
+      }
+      continue;
+    }
     IPAddress ip;
     uint8_t token[32];
     if (!active_ || muted_ || !pairing_.audioEndpoint(ip, token)) {

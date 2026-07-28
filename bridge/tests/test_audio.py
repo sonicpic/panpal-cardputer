@@ -81,7 +81,7 @@ class AudioOutputSelectionTests(unittest.TestCase):
 
         sounddevice.query_devices = lambda: devices  # type: ignore[attr-defined]
         sounddevice.OutputStream = lambda **_kwargs: FakeStream()  # type: ignore[attr-defined]
-        output = BlackHoleAudioOutput()
+        output = BlackHoleAudioOutput(CARDBRIDGE_FEED_DEVICE)
         with patch.dict(sys.modules, {"numpy": numpy, "sounddevice": sounddevice}):
             output.start()
         return output
@@ -133,7 +133,7 @@ class AudioOutputSelectionTests(unittest.TestCase):
             }
         ]
         sounddevice.OutputStream = output_stream  # type: ignore[attr-defined]
-        output = BlackHoleAudioOutput()
+        output = BlackHoleAudioOutput(CARDBRIDGE_FEED_DEVICE)
         with patch.dict(sys.modules, {"numpy": numpy, "sounddevice": sounddevice}):
             output.start()
             first = streams[0]

@@ -1,33 +1,33 @@
 {
-  "release": "1.1.0",
+  "release": "1.4.5",
   "mac_app": {
-    "version": "1.1.0",
-    "build": 9
+    "version": "1.4.5",
+    "build": 28
   },
   "bridge_agent": {
-    "version": "1.1.0",
-    "build": 9
+    "version": "1.4.5",
+    "build": 28
   },
   "agent_api": {
     "major": 1,
     "minor": 0
   },
   "firmware": {
-    "version": "0.3.0",
-    "build": 8
+    "version": "0.6.5",
+    "build": 26
   },
   "device_protocol": {
     "major": 2,
-    "minor": 0
+    "minor": 4
   },
-  "config_schema": 2,
+  "config_schema": 3,
   "compatibility": {
-    "min_firmware": "0.1.0",
+    "min_firmware": "0.4.0",
     "legacy_protocol_1": true
   },
   "updates": {
     "sparkle_version": "2.9.4",
-    "feed_url": "https://raw.githubusercontent.com/voltwake/cardputer-codex-deck/main/release/appcast.xml",
+    "feed_url": "https://raw.githubusercontent.com/sonicpic/panpal-cardputer/main/release/appcast.xml",
     "public_ed_key": "d3fvdw4bGTCUoKuACWMwrQ2ZAF6VgyvaPBdw+U5iwkQ="
   },
   "capabilities": [
@@ -35,6 +35,14 @@
     "audio.pcm16-16k.v1",
     "agents.snapshot.v1",
     "agents.phase.v1",
-    "quota.v1"
+    "quota.v1",
+    "wifi.enterprise.peap.v1",
+    "control.voice.v1",
+    "control.voice-ack.v1",
+    "control.voice-enter-policy.v1",
+    "control.keys-ack.v1",
+    "transport.select.v1",
+    "transport.ble-gatt.v1",
+    "audio.ble-ima-adpcm16k.v1"
   ]
 }

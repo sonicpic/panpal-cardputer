@@ -11,6 +11,7 @@ from pathlib import Path
 
 from cardbridge.protocol import encode_message, pack_audio
 from cardbridge.server import BridgeApp, _mdns_instance_label
+from cardbridge.voice import CaptureDevice
 from fake_device import FakeDevice
 
 
@@ -61,10 +62,17 @@ class ServerEndToEndTests(unittest.IsolatedAsyncioTestCase):
 
         # A syntactically valid post-handshake message without the token is ignored.
         writer.write(encode_message({"t": "key", "k": "x", "m": [], "a": "down"}))
-        for action in ("down", "up"):
+        for request_id, action in ((51, "down"), (52, "up")):
             writer.write(
                 encode_message(
-                    {"t": "key", "k": "f13", "m": [], "a": action, "token": token}
+                    {
+                        "t": "key",
+                        "k": "f13",
+                        "m": [],
+                        "a": action,
+                        "request_id": request_id,
+                        "token": token,
+                    }
                 )
             )
         writer.write(
@@ -73,10 +81,18 @@ class ServerEndToEndTests(unittest.IsolatedAsyncioTestCase):
         writer.write(encode_message({"t": "agent_list_req", "token": token}))
         writer.write(encode_message({"t": "ping", "token": token}))
         await writer.drain()
-        received = [await self.read(reader) for _ in range(3)]
+        received = [await self.read(reader) for _ in range(5)]
         self.assertEqual(
             {item["t"] for item in received},
-            {"agent_status", "agent_list", "pong"},
+            {"key_ack", "agent_status", "agent_list", "pong"},
+        )
+        self.assertEqual(
+            [
+                (item["request_id"], item["ok"])
+                for item in received
+                if item["t"] == "key_ack"
+            ],
+            [(51, True), (52, True)],
         )
 
         payload = struct.pack("<320h", *([1234] * 320))
@@ -115,6 +131,78 @@ class ServerEndToEndTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hello_ok["compatibility"], "legacy")
         writer2.close()
         await writer2.wait_closed()
+
+    async def test_semantic_voice_enter_and_rebooted_transport_takeover(self) -> None:
+        class Capture:
+            current = CaptureDevice("normal", "Laptop Microphone")
+            virtual = CaptureDevice("virtual", "CABLE Output")
+
+            def default_device(self) -> CaptureDevice:
+                return self.current
+
+            def find(self, _value: str) -> CaptureDevice:
+                return self.virtual
+
+            def set_default(self, device: CaptureDevice) -> None:
+                self.current = device
+
+        self.app.voice.capture = Capture()  # type: ignore[assignment]
+        self.app.voice.enter_delay_s = 0.01
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.app.tcp_port)
+        writer.write(encode_message({"t": "hello", "dev_id": "voice-device", "token": None}))
+        await writer.drain()
+        self.assertEqual((await self.read(reader))["t"], "pair_required")
+        writer.write(encode_message({"t": "pair", "code": "483291"}))
+        await writer.drain()
+        token = str((await self.read(reader))["token"])
+        self.assertEqual((await self.read(reader))["t"], "agent_status")
+
+        for request_id, action in enumerate(("down", "up"), start=41):
+            writer.write(
+                encode_message(
+                    {
+                        "t": "voice",
+                        "a": action,
+                        "locked": False,
+                        "send_enter": action == "up",
+                        "request_id": request_id,
+                        "token": token,
+                    }
+                )
+            )
+        await writer.drain()
+        acknowledgements = [await self.read(reader), await self.read(reader)]
+        self.assertEqual(
+            [(item["t"], item["a"], item["request_id"], item["ok"])
+             for item in acknowledgements],
+            [
+                ("voice_ack", "down", 41, True),
+                ("voice_ack", "up", 42, True),
+            ],
+        )
+        await asyncio.sleep(0.05)
+        self.assertEqual(
+            [(event["k"], event["a"]) for event in self.app.keyboard.events[-4:]],
+            [("f13", "down"), ("f13", "up"), ("enter", "down"), ("enter", "up")],
+        )
+
+        second_reader, second_writer = await asyncio.open_connection(
+            "127.0.0.1", self.app.tcp_port
+        )
+        second_writer.write(
+            encode_message({"t": "hello", "dev_id": "voice-device", "token": token})
+        )
+        await second_writer.drain()
+        self.assertEqual((await self.read(second_reader))["t"], "hello_ok")
+        self.assertEqual((await self.read(second_reader))["t"], "agent_status")
+        # The freshly authenticated socket replaces the stale connection left
+        # behind by a firmware/PC restart; it is not rejected as a duplicate.
+        self.assertEqual(await asyncio.wait_for(reader.readline(), 2), b"")
+        self.assertEqual(len(self.app.connected_devices), 1)
+        second_writer.close()
+        await second_writer.wait_closed()
+        writer.close()
+        await writer.wait_closed()
 
     async def test_device_protocol_delivers_all_three_quota_modes(self) -> None:
         reader, writer = await asyncio.open_connection("127.0.0.1", self.app.tcp_port)
@@ -210,6 +298,45 @@ class ServerEndToEndTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await asyncio.wait_for(reader.readline(), 2), b"")
         writer.close()
         await writer.wait_closed()
+
+    async def test_wifi_reconnect_reuses_one_pending_pair_code(self) -> None:
+        generated = iter(("123456", "654321"))
+        self.app.pair_code_factory = lambda: next(generated)
+
+        first_reader, first_writer = await asyncio.open_connection(
+            "127.0.0.1", self.app.tcp_port
+        )
+        first_writer.write(
+            encode_message({"t": "hello", "dev_id": "wifi-reconnect", "token": None})
+        )
+        await first_writer.drain()
+        self.assertEqual((await self.read(first_reader))["t"], "pair_required")
+        self.assertEqual(self.app.pairing_status["code"], "123456")
+
+        second_reader, second_writer = await asyncio.open_connection(
+            "127.0.0.1", self.app.tcp_port
+        )
+        second_writer.write(
+            encode_message({"t": "hello", "dev_id": "wifi-reconnect", "token": None})
+        )
+        await second_writer.drain()
+        self.assertEqual((await self.read(second_reader))["t"], "pair_required")
+        self.assertEqual(self.app.pairing_status["code"], "123456")
+        self.assertEqual(self.app._pending_pair_codes["wifi-reconnect"][0], "123456")
+
+        second_writer.write(encode_message({"t": "pair", "code": "123456"}))
+        await second_writer.drain()
+        self.assertEqual((await self.read(second_reader))["t"], "paired")
+        self.assertNotIn("wifi-reconnect", self.app._pending_pair_codes)
+
+        first_writer.write(encode_message({"t": "pair", "code": "123456"}))
+        await first_writer.drain()
+        self.assertEqual((await self.read(first_reader))["t"], "pair_error")
+
+        first_writer.close()
+        second_writer.close()
+        await first_writer.wait_closed()
+        await second_writer.wait_closed()
 
     async def test_shipped_fake_device_runs_end_to_end(self) -> None:
         def run_fake() -> None:
