@@ -325,7 +325,10 @@ class CodexMonitorFallbackTests(unittest.IsolatedAsyncioTestCase):
             monitor = CodexMonitor(store)
             await monitor.start()
             for _ in range(100):
-                if "api-session" in store.sessions:
+                if (
+                    "api-session" in store.sessions
+                    and store.quota_mode == "api"
+                ):
                     break
                 await asyncio.sleep(0.01)
             await monitor.stop()
