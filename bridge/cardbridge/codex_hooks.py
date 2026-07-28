@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -20,8 +21,17 @@ EVENTS = (
 OWNED_MARKERS = ("--cardbridge-codex-hook", "cardbridge_codex.py")
 
 
+def _quote_executable(executable: str, *, platform: str = sys.platform) -> str:
+    if platform == "win32":
+        # shlex.quote() emits POSIX single quotes. Windows command hooks do not
+        # treat those as path delimiters, so the default "Program Files/Codex
+        # Deck" installation could never launch its reporter.
+        return subprocess.list2cmdline([executable])
+    return shlex.quote(executable)
+
+
 def hook_command() -> str:
-    executable = shlex.quote(str(Path(sys.executable).resolve()))
+    executable = _quote_executable(str(Path(sys.executable).resolve()))
     if getattr(sys, "frozen", False):
         return f"{executable} --cardbridge-codex-hook"
     return f"{executable} -m cardbridge --cardbridge-codex-hook"
@@ -39,7 +49,7 @@ def is_current(hook: object) -> bool:
     return (
         isinstance(hook, dict)
         and hook.get("type") == "command"
-        and "--cardbridge-codex-hook" in str(hook.get("command", ""))
+        and hook.get("command") == hook_command()
     )
 
 

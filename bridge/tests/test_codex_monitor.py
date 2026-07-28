@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,13 +15,49 @@ from cardbridge.codex_monitor import (
     APP_SERVER_STREAM_LIMIT,
     THREAD_REFRESH_SECONDS,
     CodexMonitor,
+    RolloutStateReader,
+    app_server_subprocess_kwargs,
     find_codex_candidates,
     quota_available_from_account,
     quota_mode_from_account,
+    windows_codex_installations,
 )
 
 
 class CodexMonitorHelpersTests(unittest.TestCase):
+    def test_windows_installation_discovery_covers_vscode_and_desktop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            vscode = (
+                root
+                / "home"
+                / ".vscode"
+                / "extensions"
+                / "openai.chatgpt-1.2.3"
+                / "bin"
+                / "windows-x86_64"
+                / "codex.exe"
+            )
+            desktop = (
+                root
+                / "Program Files"
+                / "WindowsApps"
+                / "OpenAI.Codex_1.2.3_x64"
+                / "app"
+                / "resources"
+                / "codex.exe"
+            )
+            for executable in (vscode, desktop):
+                executable.parent.mkdir(parents=True, exist_ok=True)
+                executable.touch()
+
+            found = windows_codex_installations(
+                root / "home", program_files=root / "Program Files"
+            )
+
+        self.assertIn(vscode, found)
+        self.assertIn(desktop, found)
+
     def test_account_mode_requires_active_chatgpt_auth_for_quota(self) -> None:
         self.assertTrue(
             quota_available_from_account(
@@ -84,9 +123,65 @@ class CodexMonitorHelpersTests(unittest.TestCase):
     def test_app_server_stream_limit_allows_large_thread_list_records(self) -> None:
         self.assertGreater(APP_SERVER_STREAM_LIMIT, 64 * 1024)
 
+    def test_app_server_child_is_hidden_on_windows(self) -> None:
+        kwargs = app_server_subprocess_kwargs()
+        if os.name == "nt":
+            self.assertEqual(kwargs.get("creationflags"), subprocess.CREATE_NO_WINDOW)
+        else:
+            self.assertEqual(kwargs, {})
+
     def test_history_poll_is_fast_but_account_poll_stays_coarse(self) -> None:
         self.assertLessEqual(THREAD_REFRESH_SECONDS, 2)
         self.assertGreaterEqual(ACCOUNT_REFRESH_SECONDS, 30)
+
+    def test_rollout_reader_tracks_cross_process_lifecycle_without_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rollout.jsonl"
+            records = [
+                {
+                    "timestamp": "2026-07-27T09:24:56.326Z",
+                    "type": "event_msg",
+                    "payload": {"type": "task_started"},
+                },
+                {
+                    "timestamp": "2026-07-27T09:25:00.000Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "content": "private session content must not be returned",
+                    },
+                },
+            ]
+            path.write_text(
+                "".join(json.dumps(record) + "\n" for record in records),
+                encoding="utf-8",
+            )
+            reader = RolloutStateReader()
+            threads = [{"id": "desktop-thread", "path": str(path)}]
+
+            initial = reader.read(threads)
+            self.assertEqual(
+                [(item[0], item[1], item[3]) for item in initial],
+                [("desktop-thread", "task_started", True)],
+            )
+            self.assertNotIn("private session content", repr(initial))
+
+            with path.open("a", encoding="utf-8") as output:
+                output.write(
+                    json.dumps(
+                        {
+                            "timestamp": "2026-07-27T09:26:00.000Z",
+                            "type": "event_msg",
+                            "payload": {"type": "task_complete"},
+                        }
+                    )
+                    + "\n"
+                )
+            completed = reader.read(threads)
+            self.assertEqual(
+                [(item[0], item[1], item[3]) for item in completed],
+                [("desktop-thread", "task_complete", False)],
+            )
 
 
 class CodexMonitorFallbackTests(unittest.IsolatedAsyncioTestCase):

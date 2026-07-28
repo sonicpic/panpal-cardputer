@@ -16,6 +16,56 @@ _SECRET = re.compile(
 )
 _BEARER_TOKEN = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{8,}")
 _OPENAI_KEY = re.compile(r"\bsk-[A-Za-z0-9_-]{8,}")
+_MAX_HOOK_INPUT_BYTES = 1024 * 1024
+
+
+def _read_windows_stdin() -> bytes:
+    """Read redirected stdin from a PyInstaller windowed executable."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+    kernel32.GetStdHandle.restype = wintypes.HANDLE
+    kernel32.ReadFile.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.LPVOID,
+    ]
+    kernel32.ReadFile.restype = wintypes.BOOL
+    handle = kernel32.GetStdHandle(wintypes.DWORD(-10 & 0xFFFFFFFF))
+    invalid_handle = ctypes.c_void_p(-1).value
+    if not handle or int(handle) == invalid_handle:
+        return b""
+
+    data = bytearray()
+    while len(data) < _MAX_HOOK_INPUT_BYTES:
+        size = min(65_536, _MAX_HOOK_INPUT_BYTES - len(data))
+        buffer = ctypes.create_string_buffer(size)
+        read = wintypes.DWORD()
+        if not kernel32.ReadFile(handle, buffer, size, ctypes.byref(read), None):
+            error = ctypes.get_last_error()
+            if error in {38, 109}:  # ERROR_HANDLE_EOF / ERROR_BROKEN_PIPE
+                break
+            raise ctypes.WinError(error)
+        if read.value == 0:
+            break
+        data.extend(buffer.raw[: read.value])
+    return bytes(data)
+
+
+def _read_hook_input(stream: object = None) -> object:
+    source = sys.stdin if stream is None else stream
+    if source is not None:
+        return json.load(source)
+    if sys.platform == "win32":
+        payload = _read_windows_stdin()
+        if payload:
+            return json.loads(payload.decode("utf-8-sig"))
+    return None
 
 
 def _basename(value: object) -> str:
@@ -99,7 +149,7 @@ def _public_message_activity(value: object) -> str:
 
 def main() -> int:
     try:
-        raw = json.load(sys.stdin)
+        raw = _read_hook_input()
         if not isinstance(raw, dict):
             return 0
         tool_name = raw.get("tool_name") or raw.get("toolName") or ""

@@ -1,14 +1,41 @@
 from __future__ import annotations
 
 import unittest
+import sys
+import io
 from pathlib import Path
 import tempfile
 
-from cardbridge.codex_hooks import EVENTS, hooks_installed, transform, update_hooks
-from cardbridge.hook_reporter import _activity_from_hook, _public_message_activity
+from cardbridge.codex_hooks import (
+    EVENTS,
+    _quote_executable,
+    hook_command,
+    hooks_installed,
+    transform,
+    update_hooks,
+)
+from cardbridge.hook_reporter import (
+    _activity_from_hook,
+    _public_message_activity,
+    _read_hook_input,
+)
 
 
 class CodexHookInstallerTests(unittest.TestCase):
+    def test_hook_reporter_reads_codex_json_from_standard_input(self) -> None:
+        payload = _read_hook_input(
+            io.StringIO('{"hook_event_name":"UserPromptSubmit","session_id":"abc"}')
+        )
+        self.assertEqual(payload["hook_event_name"], "UserPromptSubmit")
+        self.assertEqual(payload["session_id"], "abc")
+
+    def test_windows_hook_command_quotes_program_files_with_double_quotes(self) -> None:
+        executable = r"C:\Program Files\Codex Deck\CardBridge.exe"
+        self.assertEqual(
+            _quote_executable(executable, platform="win32"),
+            f'"{executable}"',
+        )
+
     def test_reporter_derives_details_without_forwarding_sensitive_inputs(self) -> None:
         patch_activity = _activity_from_hook(
             {
@@ -78,7 +105,8 @@ class CodexHookInstallerTests(unittest.TestCase):
             path = Path(directory) / "hooks.json"
             self.assertFalse(hooks_installed(path))
             self.assertTrue(update_hooks(True, path))
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            if sys.platform != "win32":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertTrue(hooks_installed(path))
             self.assertFalse(update_hooks(False, path))
 
@@ -97,6 +125,18 @@ class CodexHookInstallerTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("cardbridge_codex.py", text)
             self.assertIn("--cardbridge-codex-hook", text)
+
+    def test_stale_marker_command_is_not_reported_as_current(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hooks.json"
+            stale = "'C:\\Program Files\\Codex Deck\\CardBridge.exe' --cardbridge-codex-hook"
+            path.write_text(
+                __import__("json").dumps(transform({}, command=stale, install=True)),
+                encoding="utf-8",
+            )
+            self.assertNotEqual(stale, hook_command())
+            self.assertFalse(hooks_installed(path))
+            self.assertTrue(update_hooks(True, path))
 
 
 if __name__ == "__main__":

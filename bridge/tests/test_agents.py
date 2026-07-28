@@ -7,6 +7,33 @@ from cardbridge.protocol import MAX_JSON_LINE, encode_message
 
 
 class AgentStoreTests(unittest.TestCase):
+    def test_rollout_lifecycle_is_live_without_app_server_notifications(self) -> None:
+        store = AgentStore()
+        store.update_threads(
+            [{"id": "desktop-thread", "name": "Desktop task", "updatedAt": 100}]
+        )
+
+        store.apply_rollout_event(
+            "desktop-thread", "task_started", timestamp_ms=200_000, initial=True
+        )
+        self.assertEqual(store.sessions["desktop-thread"].status, "running")
+        self.assertEqual(store.focus_id, "desktop-thread")
+
+        store.apply_rollout_event(
+            "desktop-thread", "task_complete", timestamp_ms=300_000
+        )
+        self.assertEqual(store.sessions["desktop-thread"].status, "ready")
+        self.assertTrue(store.sessions["desktop-thread"].unread)
+
+        restarted = AgentStore()
+        restarted.update_threads(
+            [{"id": "desktop-thread", "name": "Desktop task", "updatedAt": 300}]
+        )
+        restarted.apply_rollout_event(
+            "desktop-thread", "task_complete", timestamp_ms=300_000, initial=True
+        )
+        self.assertEqual(restarted.sessions["desktop-thread"].status, "idle")
+
     def test_focus_follows_latest_user_prompt_and_ack_clears_ready(self) -> None:
         store = AgentStore()
         store.update_threads(

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import json
 import logging
 import os
+import re
 import shutil
+import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -17,6 +20,7 @@ LOG = logging.getLogger("cardbridge.codex")
 APP_SERVER_STREAM_LIMIT = 4 * 1024 * 1024
 THREAD_REFRESH_SECONDS = 2
 ACCOUNT_REFRESH_SECONDS = 30
+ROLLOUT_INITIAL_SCAN_BYTES = 4 * 1024 * 1024
 _API_AUTH_MODES = frozenset(
     {
         "apikey",
@@ -26,6 +30,164 @@ _API_AUTH_MODES = frozenset(
         "bedrockApiKey",
     }
 )
+
+
+def _rollout_timestamp_ms(value: object) -> int:
+    if not isinstance(value, str):
+        return 0
+    try:
+        return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
+    except ValueError:
+        return 0
+
+
+class RolloutStateReader:
+    """Read lifecycle metadata shared by CLI, VS Code, and ChatGPT desktop.
+
+    A separately launched app-server can list every persisted thread, but its
+    in-memory status for threads owned by another process is ``notLoaded`` and
+    it does not receive that process's live notifications. Rollout JSONL files
+    are shared across those surfaces, so inspect only top-level lifecycle event
+    names and timestamps. Message, reasoning, command, and tool payloads are
+    deliberately never retained or forwarded.
+    """
+
+    _CONTROL_EVENTS = frozenset({"task_started", "task_complete", "turn_aborted"})
+    _TYPE_FIELD = re.compile(rb'"type"\s*:\s*"([a-zA-Z0-9_/-]+)"')
+    _TIMESTAMP_FIELD = re.compile(rb'"timestamp"\s*:\s*"([^"]{1,64})"')
+
+    def __init__(self) -> None:
+        self._offsets: dict[str, int] = {}
+        self._partials: dict[str, bytes] = {}
+
+    def read(
+        self, threads: list[dict[str, Any]]
+    ) -> list[tuple[str, str, int, bool]]:
+        events: list[tuple[str, str, int, bool]] = []
+        for thread in threads:
+            session_id = thread.get("id")
+            raw_path = thread.get("path")
+            if not isinstance(session_id, str) or not isinstance(raw_path, str):
+                continue
+            path = Path(raw_path)
+            if path.suffix.lower() != ".jsonl":
+                continue
+            key = str(path)
+            try:
+                size = path.stat().st_size
+            except OSError:
+                continue
+
+            previous_offset = self._offsets.get(key)
+            initial = previous_offset is None or previous_offset > size
+            start = max(0, size - ROLLOUT_INITIAL_SCAN_BYTES) if initial else previous_offset
+            try:
+                with path.open("rb") as source:
+                    source.seek(start)
+                    if initial and start:
+                        # The bounded initial scan may begin inside a JSON line.
+                        source.readline()
+                    data = source.read()
+                    self._offsets[key] = source.tell()
+            except OSError:
+                continue
+
+            prefix = b"" if initial else self._partials.pop(key, b"")
+            data = prefix + data
+            if data and not data.endswith(b"\n"):
+                complete, separator, partial = data.rpartition(b"\n")
+                if separator:
+                    data = complete + b"\n"
+                    self._partials[key] = partial
+                else:
+                    self._partials[key] = data
+                    data = b""
+            controls = self._control_events(data)
+            if initial:
+                if controls:
+                    event, timestamp_ms = controls[-1]
+                    events.append((session_id, event, timestamp_ms, True))
+            else:
+                events.extend(
+                    (session_id, event, timestamp_ms, False)
+                    for event, timestamp_ms in controls
+                )
+        return events
+
+    def _control_events(self, data: bytes) -> list[tuple[str, int]]:
+        result: list[tuple[str, int]] = []
+        for raw_line in data.splitlines():
+            # Lifecycle fields appear before any message/tool payload. Inspect
+            # only the bounded metadata prefix, so private session content is
+            # neither decoded nor materialized as Python strings.
+            prefix = raw_line[:1024]
+            types = self._TYPE_FIELD.findall(prefix, 0, len(prefix))
+            if len(types) < 2 or types[0] != b"event_msg":
+                continue
+            event = types[1].decode("ascii", errors="ignore")
+            if event not in self._CONTROL_EVENTS:
+                continue
+            timestamp_match = self._TIMESTAMP_FIELD.search(prefix)
+            timestamp = (
+                timestamp_match.group(1).decode("ascii", errors="ignore")
+                if timestamp_match
+                else ""
+            )
+            result.append((event, _rollout_timestamp_ms(timestamp)))
+        return result
+
+
+def windows_codex_installations(
+    user_home: Path, *, program_files: Path | None = None
+) -> list[Path]:
+    """Find official ChatGPT/Codex binaries without inspecting app windows.
+
+    VS Code, ChatGPT for Windows, and the CLI share the Codex state database.
+    Any compatible bundled ``codex.exe app-server`` can therefore read the
+    same thread list; Hooks provide the live lifecycle edges.
+    """
+
+    candidates: list[Path] = []
+    for extension_root in (
+        user_home / ".vscode" / "extensions",
+        user_home / ".vscode-insiders" / "extensions",
+    ):
+        try:
+            candidates.extend(
+                sorted(
+                    extension_root.glob(
+                        "openai.chatgpt-*/bin/windows-*/codex.exe"
+                    ),
+                    reverse=True,
+                )
+            )
+        except OSError:
+            pass
+    if program_files is not None:
+        windows_apps = program_files / "WindowsApps"
+        try:
+            candidates.extend(
+                sorted(
+                    windows_apps.glob(
+                        "OpenAI.Codex_*/app/resources/codex.exe"
+                    ),
+                    reverse=True,
+                )
+            )
+        except OSError:
+            pass
+    return candidates
+
+
+def app_server_subprocess_kwargs() -> dict[str, int]:
+    """Return platform-specific flags for an invisible app-server child."""
+
+    if os.name == "nt":
+        # The Codex CLI is commonly installed as npm's codex.cmd. Without this
+        # flag Windows creates a visible cmd.exe console each time the monitor
+        # starts or retries app-server.
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
 
 
 def find_codex_candidates(
@@ -44,21 +206,46 @@ def find_codex_candidates(
     lookup = path_lookup or shutil.which
     user_home = home or Path.home()
     bundled_path = bundled or Path("/Applications/ChatGPT.app/Contents/Resources/codex")
-    raw_candidates: list[str | Path | None] = [
-        lookup("codex"),
+    path_candidate = lookup("codex")
+    raw_candidates: list[str | Path | None] = []
+    if os.name == "nt":
+        program_files = os.environ.get("ProgramFiles")
+        raw_candidates.extend(
+            windows_codex_installations(
+                user_home,
+                program_files=Path(program_files) if program_files else None,
+            )
+        )
+        # Prefer the user's VS Code extension/desktop bundle over a PATH shim
+        # that may point into a protected WindowsApps alias.
+        raw_candidates.append(path_candidate)
+    else:
+        raw_candidates.append(path_candidate)
+    raw_candidates.extend([
         user_home / ".npm-global" / "bin" / "codex",
         user_home / ".local" / "bin" / "codex",
         Path("/opt/homebrew/bin/codex"),
         Path("/usr/local/bin/codex"),
         bundled_path,
-    ]
+    ])
+    if os.name == "nt":
+        app_data = os.environ.get("APPDATA")
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        raw_candidates.extend(
+            [
+                user_home / "AppData" / "Roaming" / "npm" / "codex.cmd",
+                Path(app_data) / "npm" / "codex.cmd" if app_data else None,
+                Path(local_app_data) / "Programs" / "Codex" / "codex.exe"
+                if local_app_data else None,
+            ]
+        )
     candidates: list[str] = []
     seen: set[str] = set()
     for candidate in raw_candidates:
         if candidate is None:
             continue
         path = Path(candidate).expanduser()
-        if not path.is_file() or not os.access(path, os.X_OK):
+        if not path.is_file() or (os.name != "nt" and not os.access(path, os.X_OK)):
             continue
         identity = os.path.realpath(path)
         if identity in seen:
@@ -123,6 +310,7 @@ class CodexAppServerClient:
             # thread/list is one JSONL record and can exceed asyncio's 64 KiB
             # default even though CardBridge later trims it to eight sessions.
             limit=APP_SERVER_STREAM_LIMIT,
+            **app_server_subprocess_kwargs(),
         )
         self._reader_task = asyncio.create_task(self._read_stdout())
         self._stderr_task = asyncio.create_task(self._read_stderr())
@@ -228,6 +416,7 @@ class CodexMonitor:
         self._stopping = False
         self._message_buffers: dict[tuple[str, str], str] = {}
         self._message_published_at: dict[tuple[str, str], float] = {}
+        self.rollout_states = RolloutStateReader()
 
     async def start(self) -> None:
         if not self.executables:
@@ -267,7 +456,21 @@ class CodexMonitor:
         )
         data = threads.get("data")
         if isinstance(data, list):
-            self.store.update_threads([item for item in data if isinstance(item, dict)])
+            clean_threads = [item for item in data if isinstance(item, dict)]
+            self.store.update_threads(clean_threads)
+            # The owning desktop/IDE app-server does not broadcast events to
+            # this independent monitor process. Rollout lifecycle metadata is
+            # the cross-process fallback; file I/O stays off the event loop.
+            lifecycle = await asyncio.to_thread(
+                self.rollout_states.read, clean_threads
+            )
+            for session_id, event, timestamp_ms, initial in lifecycle:
+                self.store.apply_rollout_event(
+                    session_id,
+                    event,
+                    timestamp_ms=timestamp_ms,
+                    initial=initial,
+                )
 
     async def refresh_account(self) -> None:
         if self.client is None:

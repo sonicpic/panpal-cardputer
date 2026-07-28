@@ -217,6 +217,8 @@ class AgentStore:
         self.weekly: QuotaWindow | None = None
         self.five_hour: QuotaWindow | None = None
         self.quota_mode = "unknown"
+        self.last_hook_event_ms = 0
+        self.last_hook_event = ""
         self.seq = 0
         # Both turn/started and the first userMessage item/started describe the
         # same App Server turn. Remember the public turn id so the latter does
@@ -372,6 +374,62 @@ class AgentStore:
         elif method == "item/completed" and item_type not in {"agentMessage", "plan"}:
             self.apply_public_activity(session_id, "Reviewing the result", phase="thinking")
 
+    def apply_rollout_event(
+        self,
+        session_id: object,
+        event: str,
+        *,
+        timestamp_ms: int = 0,
+        initial: bool = False,
+    ) -> None:
+        """Apply content-free lifecycle metadata from a shared rollout file."""
+
+        session_key = _text(session_id, _SESSION_ID_CHAR_LIMIT)
+        if not session_key:
+            return
+        session = self._session(session_key)
+        event_ms = timestamp_ms or _now_ms()
+
+        if event == "task_started":
+            was_running = session.status == "running"
+            changed = (
+                not was_running
+                or session.phase != "thinking"
+                or session.unread
+            )
+            session.status = "running"
+            session.phase = "thinking"
+            if not was_running:
+                session.activity = "Understanding the task"
+            session.unread = False
+            session.updated_ms = max(session.updated_ms, event_ms)
+            session.prompt_ms = max(session.prompt_ms, event_ms)
+            self._latest_prompt_ms = max(self._latest_prompt_ms, event_ms)
+            if not was_running or self.focus_id != session_key:
+                self.focus_id = session_key
+                self.focus_seq += 1
+                changed = True
+            self._trim()
+            if changed:
+                self._changed()
+            return
+
+        if event not in {"task_complete", "turn_aborted"}:
+            return
+        if initial:
+            # Starting PanPal after an old completed turn should show Standby,
+            # not replay a completion alert from the session history.
+            return
+        session.status = "ready"
+        session.phase = ""
+        session.activity = (
+            "Task completed" if event == "task_complete" else "Task stopped"
+        )
+        session.unread = True
+        session.updated_ms = max(session.updated_ms, event_ms)
+        self._trim()
+        self._changed()
+
     def update_threads(self, threads: list[dict[str, Any]]) -> None:
         changed = False
         latest_prompt_id = ""
@@ -501,6 +559,8 @@ class AgentStore:
             session.unread = True
         else:
             return
+        self.last_hook_event_ms = session.updated_ms
+        self.last_hook_event = event
         self._trim()
         self._changed()
 
