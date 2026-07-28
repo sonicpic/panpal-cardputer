@@ -1,12 +1,16 @@
-# Codex Deck
+# PanPal
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Codex Deck** 是一个独立开源的 OpenAI Codex 便携硬件伴侣，把
+> **PanPal** 是一个独立开源的语音与编程便携硬件伴侣，把
 > M5Stack Cardputer ADV 变成 macOS 上的无线键盘、麦克风和实时 Agent
 > 状态屏。
 
-Codex Deck 不是 OpenAI 官方产品，也不代表 OpenAI 官方背书。
+PanPal 不是 OpenAI 官方产品，也不代表 OpenAI 官方背书。
+
+PanPal 基于
+[`voltwake/cardputer-codex-deck`](https://github.com/voltwake/cardputer-codex-deck)
+开发，并保留原项目的 MIT 许可证、版权声明和 Git 历史。
 
 当前 1.x macOS 安装包和桥接服务仍保留 `CardBridge` 技术兼容名，以便已有
 配对、权限和音频设置平滑升级，不需要重新配置。
@@ -48,11 +52,11 @@ Codex Deck 不是 OpenAI 官方产品，也不代表 OpenAI 官方背书。
 安装与开发文档从 [`docs/README.md`](docs/README.md) 开始。产品要求和历史
 验收记录仍保存在 `docs/` 中，但不作为规范安装入口。
 
-仓库名是 `cardputer-codex-deck`，当前硬件目标是 M5Stack Cardputer ADV。
+仓库名是 `panpal-cardputer`，当前硬件目标是 M5Stack Cardputer ADV。
 
 ## 安装发布版
 
-普通用户应从 GitHub Releases 下载已签名/公证的 Codex Deck App 和匹配的
+普通用户应从 GitHub Releases 下载已签名/公证的 PanPal App 和匹配的
 固件。校验 `SHA256SUMS`，把 `CardBridge.app` 放入 `/Applications`，启动
 App 并按提示完成一次性的 macOS 权限设置。完整流程见
 [`docs/INSTALL.md`](docs/INSTALL.md)。
@@ -60,13 +64,20 @@ App 并按提示完成一次性的 macOS 权限设置。完整流程见
 从源码目录运行 `./scripts/install-release.sh`，脚本会自动下载、校验和挂载
 DMG，然后安装 App。
 
-当前预构建目标是 Apple Silicon + macOS 13 或更高版本。Codex Deck 需要
+当前预构建目标是 Apple Silicon + macOS 13 或更高版本。PanPal 需要
 Cardputer ADV 连接 2.4 GHz Wi-Fi。安装 Mac App 和刷写 Cardputer 固件是
 两个独立操作。
 
+## 本分支的 Windows 构建
+
+本分支额外提供 Windows Bridge、Inno Setup 安装程序和 Spear Rib 固件资源。
+Windows 使用 `SendInput` 转发键盘，使用 DPAPI 保存配对密钥，并通过用户另行
+安装的 VB-CABLE 虚拟声卡传送麦克风。可复现构建、安装、配对和企业 Wi-Fi 流程见
+[`docs/WINDOWS.md`](docs/WINDOWS.md)。
+
 ## 使用 macOS 菜单栏 App
 
-`CardBridge.app` 是当前 1.x 的内部 bundle 名称，对外显示为 Codex Deck。
+`CardBridge.app` 是当前 1.x 的内部 bundle 名称，对外显示为 PanPal。
 它自带签名的 Bridge Agent，启动后立即开始桥接，只显示在菜单栏，能够自动
 重新连接已配对的 M5 设备，不需要 Python、虚拟环境或终端。
 
@@ -81,7 +92,7 @@ Cardputer ADV 连接 2.4 GHz Wi-Fi。安装 Mac App 和刷写 Cardputer 固件�
 ./scripts/healthcheck.sh
 ```
 
-首次启动时，Codex Deck（`CardBridge.app`）会用一次 macOS 管理员授权安装
+首次启动时，PanPal（`CardBridge.app`）会用一次 macOS 管理员授权安装
 内置的 `CardBridge Microphone` HAL 驱动，然后请求 **系统设置 → 隐私与安全性
 → 辅助功能** 权限，以便转发键盘输入。麦克风会提供一个仅输入的兼容 Core
 Audio 设备和一个供 Agent 使用的仅输出音频流；如果已安装 BlackHole 2ch，
@@ -99,7 +110,7 @@ Audio 设备和一个供 Agent 使用的仅输出音频流；如果已安装 Bla
 ## 构建固件
 
 ```sh
-cd /path/to/cardputer-codex-deck
+cd /path/to/panpal-cardputer
 pio run
 ```
 
@@ -169,13 +180,17 @@ Source Han Sans 使用 SIL Open Font License 1.1 发布，所需声明在
 
 ## 设备控制
 
-- BtnA 切换键盘转发。状态栏最左侧的键盘图标表示转发是否开启；切换不会改变当前页面。
+- G0/BtnA 用于按住说话：按住、松开完成一次语音，双击可锁定长时间说话，再单击一次结束。`Fn+Space` 是键盘上的按住说话入口。
+- `Fn+Enter` 控制语音结束 1 秒后是否自动发送回车；绿色回车图标表示开启。
+- `Fn+Tab` 切换键盘转发。青色实心键盘表示已进入 Remote 模式且 Bridge 已连接；红色斜线表示选择了 Remote 模式，但当前没有可用的电脑连接。
+- 独立的麦克风图标只会在 Bridge 确认麦克风切换和语音快捷键均已成功后变绿。
 - 键盘转发开启时，`Fn+;`、`Fn+,`、`Fn+.`、`Fn+/` 发送上、左、下、右；`Fn+\`` 发送 Escape。Shift 会作为 macOS 修饰键附加到目标键，Ctrl/Cmd/Option 保持正常的按下/抬起事件。
 - 键盘转发关闭时，可用印刷的方向键（`; . , /`）或 `I/J/K/L` 导航，`Enter` 确认，反引号/ESC 返回。
 - 在 Codex 页面中，左右键切换当前显示的会话，`Enter` 将该会话的仅限 Cardputer 的完成/阻塞提醒标记为已读。收到新的用户提示后，宠物会自动回到该会话。
 - 在 Wi-Fi 和已配对 Mac 列表中，`Backspace` 忘记或删除选中的保存项，不需要 Fn 组合键。
 - 密码输入保留大小写和 Shift 符号：输入大写字母或符号时按住 `Shift`；`Backspace` 编辑，反引号/ESC 取消。
-- Wi-Fi 设置总是从扫描列表开始，只需输入密码。
+- Wi-Fi 设置总是从扫描列表开始。WPA2-Enterprise 网络会要求输入用户名和密码，
+  并使用 EAP-PEAP/MSCHAPv2；普通加密网络只需输入密码。
 
 ## 项目政策
 

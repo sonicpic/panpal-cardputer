@@ -26,9 +26,9 @@ constexpr int kCodexColumnWidth = 114;
 constexpr int kCodexRightX = kCodexLeftX + kCodexColumnWidth + kCodexGap;
 constexpr int kCodexPanelY = 4;
 constexpr int kCodexPanelHeight = 127;
-constexpr int kCodexPetX = 6;
-constexpr int kCodexPetY = 10;
-constexpr int kCodexPetSize = 100;
+constexpr int kCodexPetX = 9;
+constexpr int kCodexPetY = 13;
+constexpr int kCodexPetSize = 96;
 constexpr int kCodexKeyboardX = 6;
 constexpr int kCodexKeyboardY = 6;
 constexpr int kCodexSessionBadgeWidth = 24;
@@ -54,6 +54,7 @@ constexpr int kCodexWeeklyY = 103;
 constexpr int kCodexFiveHourY = 116;
 constexpr int kCodexQuotaRowHeight = 10;
 constexpr uint8_t kBrightnessLevels[] = {64, 128, 192, 255};
+constexpr uint8_t kNotificationVolumes[] = {0, 64, 128, 192};
 constexpr uint16_t kScreenTimeouts[] = {30, 60, 120, 300, 0};
 
 static_assert(kCodexLeftX == kCodexMargin);
@@ -157,16 +158,14 @@ void DeviceUi::begin() {
   }
   canvas_.setTextFont(1);
   lastActivityMs_ = millis();
-  // Boot always lands in Local mode, so the microphone stays physically off
-  // until the user explicitly enables keyboard forwarding.
-  audio_.setActive(mode_ == UiMode::Remote);
+  // VoiceController owns the microphone independently of keyboard routing.
+  // Boot still lands in Local mode so the on-device UI remains usable.
   render();
 }
 
 void DeviceUi::setMode(UiMode mode) {
   if (mode_ == mode) return;
   mode_ = mode;
-  audio_.setActive(mode_ == UiMode::Remote);
   Serial.printf("[ui] mode=%s mic_active=%d muted=%d\n", modeName(),
                 audio_.active(), audio_.muted());
   suppressUntilRelease_ = M5Cardputer.Keyboard.isPressed();
@@ -183,19 +182,49 @@ void DeviceUi::tick() {
   // The mode is the user's decision alone: connecting/disconnecting never
   // changes it. Auto-entering Remote on connect stole the device out of the
   // user's hands; a live link only means keys *can* be sent, not that they
-  // should be. Boot lands in Local; only BtnA leaves it.
+  // should be. Fn+Tab is the explicit routing switch; G0 belongs to voice.
 
-  // BtnA: the dedicated physical mode switch (wakes the screen first).
-  if (M5Cardputer.BtnA.wasClicked()) {
-    Serial.println("[ui] BtnA click");
+  if (M5Cardputer.BtnA.wasPressed()) {
+    noteActivity();
+    if (screenOff_) {
+      screenOff_ = false;
+      M5Cardputer.Display.setBrightness(settings_.brightness);
+    }
+  }
+
+  const auto& keyboardState = M5Cardputer.Keyboard.keysState();
+  const bool autoEnterChord = keyboardState.fn && keyboardState.enter;
+  if (autoEnterChord && !autoEnterChordWasDown_) {
+    noteActivity();
+    if (screenOff_) {
+      screenOff_ = false;
+      M5Cardputer.Display.setBrightness(settings_.brightness);
+    } else {
+      settings_.sendEnterAfterVoice = !settings_.sendEnterAfterVoice;
+      store_.saveSettings(settings_);
+      petInteractionState_ = settings_.sendEnterAfterVoice
+                                 ? PetVisualState::Jumping
+                                 : PetVisualState::Waving;
+      petInteractionUntilMs_ = millis() + 1100;
+      Serial.printf("[ui] Fn+Enter auto-enter -> %s\n",
+                    settings_.sendEnterAfterVoice ? "on" : "off");
+    }
+    suppressUntilRelease_ = true;
+  }
+  autoEnterChordWasDown_ = autoEnterChord;
+  const bool modeChord = keyboardState.fn && keyboardState.tab;
+  if (modeChord && !modeChordWasDown_) {
     noteActivity();
     if (screenOff_) {
       screenOff_ = false;
       M5Cardputer.Display.setBrightness(settings_.brightness);
     } else {
       toggleMode();
+      Serial.printf("[ui] Fn+Tab mode -> %s\n", modeName());
     }
+    suppressUntilRelease_ = true;
   }
+  modeChordWasDown_ = modeChord;
 
   if (suppressUntilRelease_ && !M5Cardputer.Keyboard.isPressed()) {
     suppressUntilRelease_ = false;
@@ -213,8 +242,18 @@ void DeviceUi::tick() {
   }
   updateScreenPower();
 
-  // First-boot funnel: no WiFi credentials -> jump into setup.
-  if (wifi_.needsSetup() && mode_ == UiMode::Local && page_ == Page::Main) {
+  if (!settings_.connectionModeChosen && mode_ == UiMode::Local &&
+      page_ == Page::Main) {
+    setPage(Page::Connection);
+  }
+  if (page_ == Page::Restarting && restartAtMs_ &&
+      static_cast<int32_t>(millis() - restartAtMs_) >= 0) {
+    ESP.restart();
+  }
+  // First-boot Wi-Fi funnel only applies after Wi-Fi was explicitly selected.
+  if (settings_.connectionModeChosen &&
+      settings_.connectionMode == ConnectionMode::Wifi && wifi_.needsSetup() &&
+      mode_ == UiMode::Local && page_ == Page::Main) {
     wifi_.acknowledgeSetup();
     wifi_.startScan();
     setPage(Page::Wifi);
@@ -230,6 +269,7 @@ void DeviceUi::tick() {
 
   if (mode_ == UiMode::Local &&
       (page_ == Page::Computers || page_ == Page::AddComputer) &&
+      settings_.connectionMode == ConnectionMode::Wifi &&
       millis() - lastComputerScanMs_ >= 10000) {
     pairing_.requestDiscovery();
     lastComputerScanMs_ = millis();
@@ -264,6 +304,8 @@ void DeviceUi::tick() {
       }
     }
   }
+
+  updateNotifications();
 
   // Input routing.
   consumesKeyboard_ = mode_ == UiMode::Local || suppressUntilRelease_;
@@ -312,13 +354,17 @@ void DeviceUi::handleInput() {
   switch (page_) {
     case Page::Main: handleMain(); break;
     case Page::Codex: handleCodex(); break;
+    case Page::Connection: handleConnection(); break;
     case Page::Wifi: handleWifi(); break;
     case Page::WifiPassword: handlePassword(); break;
+    case Page::WifiEnterpriseUsername: handleEnterpriseUsername(); break;
+    case Page::WifiEnterprisePassword: handleEnterprisePassword(); break;
     case Page::Computers: handleComputers(); break;
     case Page::AddComputer: handleAddComputer(); break;
     case Page::PairCode: handlePairCode(); break;
     case Page::Brightness: handleBrightness(); break;
     case Page::ScreenOff: handleScreenOff(); break;
+    case Page::Restarting: break;
   }
 }
 
@@ -353,8 +399,7 @@ void DeviceUi::handleMain() {
         break;
       case 1:
         listSelection_ = 0;
-        wifi_.startScan();
-        setPage(Page::Wifi);
+        setPage(Page::Connection);
         break;
       case 2:
         listSelection_ = 0;
@@ -411,11 +456,26 @@ void DeviceUi::handleWifi() {
     if (selected.saved) {
       for (size_t i = 0; i < wifi_.savedCount(); ++i) {
         if (wifi_.saved(i).ssid == selected.ssid) {
-          wifi_.connectSaved(i);
-          setPage(Page::Main);
+          if (wifi_.saved(i).security == WifiSecurity::EnterprisePeap &&
+              wifi_.enterpriseCredentialsRejected(selected.ssid)) {
+            // A saved PEAP profile was rejected. Let the user correct it
+            // directly rather than asking them to forget and rescan first.
+            pendingSsid_ = selected.ssid;
+            pendingEnterpriseUsername_.clear();
+            textEntry_.clear();
+            setPage(Page::WifiEnterpriseUsername);
+          } else {
+            wifi_.connectSaved(i);
+            setPage(Page::Main);
+          }
           break;
         }
       }
+    } else if (selected.enterprise) {
+      pendingSsid_ = selected.ssid;
+      pendingEnterpriseUsername_.clear();
+      textEntry_.clear();
+      setPage(Page::WifiEnterpriseUsername);
     } else if (selected.encrypted) {
       pendingSsid_ = selected.ssid;
       textEntry_.clear();
@@ -435,6 +495,110 @@ void DeviceUi::handlePassword() {
     wifi_.addAndConnect(pendingSsid_, textEntry_);
     textEntry_.clear();
     setPage(Page::Main);
+  } else if (state.del) {
+    if (!textEntry_.isEmpty()) textEntry_.remove(textEntry_.length() - 1);
+  } else {
+    appendTypedText(textEntry_, 63, false);
+  }
+}
+
+size_t notificationVolumeIndex(uint8_t value) {
+  for (size_t i = 0; i < sizeof(kNotificationVolumes); ++i) {
+    if (kNotificationVolumes[i] == value) return i;
+  }
+  return 2;
+}
+
+const char* notificationToneName(uint8_t tone) {
+  static const char* names[] = {"OFF", "CHIME", "BELL", "SOFT"};
+  return names[min<uint8_t>(tone, 3)];
+}
+
+void DeviceUi::handleConnection() {
+  const bool firstBoot = !settings_.connectionModeChosen;
+  const size_t rows = firstBoot ? 3 : 4;  // Wi-Fi, Bluetooth, configure, back.
+  if (!firstBoot && backPressed()) {
+    setPage(Page::Main);
+  } else if (navUp()) {
+    listSelection_ = (listSelection_ + rows - 1) % rows;
+  } else if (navDown()) {
+    listSelection_ = (listSelection_ + 1) % rows;
+  } else if (enterPressed()) {
+    if (listSelection_ == 0) {
+      if (firstBoot || settings_.connectionMode != ConnectionMode::Wifi) {
+        restartWithConnectionMode(ConnectionMode::Wifi);
+      } else {
+        wifi_.startScan();
+        setPage(Page::Wifi);
+      }
+    } else if (listSelection_ == 1) {
+      if (firstBoot || settings_.connectionMode != ConnectionMode::Bluetooth) {
+        restartWithConnectionMode(ConnectionMode::Bluetooth);
+      } else {
+        pairing_.openBluetoothPairingWindow();
+        setPage(Page::AddComputer);
+      }
+    } else if (listSelection_ == 2) {
+      if (settings_.connectionMode == ConnectionMode::Wifi) {
+        wifi_.startScan();
+        setPage(Page::Wifi);
+      }
+    } else {
+      setPage(Page::Main);
+    }
+  }
+}
+
+void DeviceUi::restartWithConnectionMode(ConnectionMode mode) {
+  if (!store_.saveConnectionMode(mode)) {
+    connectionSaveFailed_ = true;
+    Serial.printf("[ui] failed to persist connection mode=%u; restart cancelled\n",
+                  static_cast<unsigned>(mode));
+    return;
+  }
+  connectionSaveFailed_ = false;
+  keys_.releaseAll();
+  pairing_.sendVoice("up", false);
+  audio_.setActive(false);
+  pairing_.disconnect(false);
+  settings_.connectionMode = mode;
+  settings_.connectionModeChosen = true;
+  restartAtMs_ = millis() + 1000UL;
+  setPage(Page::Restarting);
+}
+
+void DeviceUi::handleEnterpriseUsername() {
+  const auto& state = M5Cardputer.Keyboard.keysState();
+  if (escapePressed()) {
+    setPage(Page::Wifi);
+  } else if (state.enter) {
+    if (!textEntry_.isEmpty()) {
+      pendingEnterpriseUsername_ = textEntry_;
+      textEntry_.clear();
+      revealEnterprisePassword_ = true;
+      setPage(Page::WifiEnterprisePassword);
+    }
+  } else if (state.del) {
+    if (!textEntry_.isEmpty()) textEntry_.remove(textEntry_.length() - 1);
+  } else {
+    appendTypedText(textEntry_, 63, false);
+  }
+}
+
+void DeviceUi::handleEnterprisePassword() {
+  const auto& state = M5Cardputer.Keyboard.keysState();
+  if (state.tab) {
+    revealEnterprisePassword_ = !revealEnterprisePassword_;
+  } else if (escapePressed()) {
+    textEntry_.clear();
+    setPage(Page::WifiEnterpriseUsername);
+  } else if (state.enter) {
+    if (wifi_.addEnterpriseAndConnect(pendingSsid_, pendingEnterpriseUsername_,
+                                      textEntry_)) {
+      textEntry_.clear();
+      pendingEnterpriseUsername_.clear();
+      setPage(Page::Main);
+    }
   } else if (state.del) {
     if (!textEntry_.isEmpty()) textEntry_.remove(textEntry_.length() - 1);
   } else {
@@ -462,7 +626,11 @@ void DeviceUi::handleComputers() {
       }
     } else if (listSelection_ == pairing_.pairedCount()) {
       listSelection_ = 0;
-      pairing_.requestDiscovery();
+      if (settings_.connectionMode == ConnectionMode::Bluetooth) {
+        pairing_.openBluetoothPairingWindow();
+      } else {
+        pairing_.requestDiscovery();
+      }
       setPage(Page::AddComputer);
     } else {
       setPage(Page::Main);
@@ -471,6 +639,10 @@ void DeviceUi::handleComputers() {
 }
 
 void DeviceUi::handleAddComputer() {
+  if (settings_.connectionMode == ConnectionMode::Bluetooth) {
+    if (backPressed()) setPage(Page::Computers);
+    return;
+  }
   const size_t count = pairing_.discoveredCount();
   const auto& state = M5Cardputer.Keyboard.keysState();
   if (state.tab || pressed('r')) {
@@ -505,15 +677,41 @@ void DeviceUi::handleBrightness() {
     setPage(Page::Main);
     return;
   }
+  if (navUp()) {
+    displaySoundSelection_ = (displaySoundSelection_ + 2) % 3;
+    return;
+  }
+  if (navDown()) {
+    displaySoundSelection_ = (displaySoundSelection_ + 1) % 3;
+    return;
+  }
+  if (enterPressed()) {
+    if (displaySoundSelection_ > 0) {
+      audio_.requestNotification(settings_.notificationTone,
+                                 settings_.notificationVolume);
+    }
+    return;
+  }
   int direction = 0;
-  if (navLeft() || navDown()) direction = -1;
-  if (navRight() || navUp() || enterPressed()) direction = 1;
+  if (navLeft()) direction = -1;
+  if (navRight()) direction = 1;
   if (!direction) return;
-  const size_t count = sizeof(kBrightnessLevels);
-  const size_t current = brightnessLevelIndex(settings_.brightness);
-  const size_t next = (current + count + direction) % count;
-  settings_.brightness = kBrightnessLevels[next];
-  M5Cardputer.Display.setBrightness(settings_.brightness);
+  if (displaySoundSelection_ == 0) {
+    const size_t count = sizeof(kBrightnessLevels);
+    const size_t current = brightnessLevelIndex(settings_.brightness);
+    settings_.brightness =
+        kBrightnessLevels[(current + count + direction) % count];
+    M5Cardputer.Display.setBrightness(settings_.brightness);
+  } else if (displaySoundSelection_ == 1) {
+    settings_.notificationTone =
+        (settings_.notificationTone + 4 + direction) % 4;
+  } else {
+    const size_t count = sizeof(kNotificationVolumes);
+    const size_t current =
+        notificationVolumeIndex(settings_.notificationVolume);
+    settings_.notificationVolume =
+        kNotificationVolumes[(current + count + direction) % count];
+  }
   store_.saveSettings(settings_);
 }
 
@@ -575,13 +773,17 @@ void DeviceUi::render() {
   switch (page_) {
     case Page::Main: drawMain(); break;
     case Page::Codex: drawCodex(); break;
+    case Page::Connection: drawConnection(); break;
     case Page::Wifi: drawWifi(); break;
     case Page::WifiPassword: drawPassword(); break;
+    case Page::WifiEnterpriseUsername: drawEnterpriseUsername(); break;
+    case Page::WifiEnterprisePassword: drawEnterprisePassword(); break;
     case Page::Computers: drawComputers(); break;
     case Page::AddComputer: drawAddComputer(); break;
     case Page::PairCode: drawPairCode(); break;
     case Page::Brightness: drawBrightness(); break;
     case Page::ScreenOff: drawScreenOff(); break;
+    case Page::Restarting: drawRestarting(); break;
   }
   // Explicit destination: the sprite's stored parent pointer is unreliable
   // when the canvas member is constructed before M5Cardputer (static-init
@@ -617,35 +819,48 @@ void DeviceUi::drawBattery(int x, int y) {
 void DeviceUi::drawStatusBar() {
   canvas_.fillRect(0, 0, kWidth, kStatusHeight, TFT_BLACK);
   drawKeyboardModeIcon(4, 4);
-  drawWifiBars(28, 4, wifi_.rssi(), wifi_.connected());
+  canvas_.setTextFont(1);
+  canvas_.setTextSize(1);
+  canvas_.setTextColor(pairing_.connected() ? kGood : kTextDim, TFT_BLACK);
+  canvas_.setTextDatum(middle_center);
+  canvas_.drawString(settings_.connectionMode == ConnectionMode::Bluetooth
+                         ? "BT" : "WiFi",
+                     35, 9);
+  canvas_.setTextDatum(top_left);
   drawScrollingTitle(statusBarTitle());
+  drawAutoEnterIcon(182, 4);
+  drawVoiceStatusIcon(198, 2);
   drawBattery(214, 5);
 }
 
 String DeviceUi::statusBarTitle() const {
   switch (page_) {
-    case Page::Main: return "CODEX DECK";
+    case Page::Main: return "PANPAL";
     case Page::Codex: {
       const AgentSession* agent = selectedAgent();
-      if (!agent) return "Codex";
+      if (!agent) return "Session";
       if (!agent->title.isEmpty()) return agent->title;
       if (!agent->project.isEmpty()) return agent->project;
-      return "Codex";
+      return "Session";
     }
+    case Page::Connection: return "Connection";
     case Page::Wifi: return "WiFi";
     case Page::WifiPassword: return "WiFi Password";
+    case Page::WifiEnterpriseUsername: return "Enterprise username";
+    case Page::WifiEnterprisePassword: return "Enterprise password";
     case Page::Computers: return "Computers";
     case Page::AddComputer: return "Add Computer";
     case Page::PairCode: return "Pair Computer";
-    case Page::Brightness: return "Brightness";
+    case Page::Brightness: return "Display & Sound";
     case Page::ScreenOff: return "Screen off";
+    case Page::Restarting: return "Restarting";
   }
-  return "CODEX DECK";
+  return "PANPAL";
 }
 
 void DeviceUi::drawScrollingTitle(const String& title) {
   constexpr int x = 48;
-  constexpr int width = 144;
+  constexpr int width = 130;
   if (title != marqueeTitle_) {
     marqueeTitle_ = title;
     marqueeStartedMs_ = millis();
@@ -839,8 +1054,9 @@ void DeviceUi::drawCodexActivity(const String& activity) {
 }
 
 void DeviceUi::drawKeyboardModeIcon(int x, int y) {
-  const bool enabled = mode_ == UiMode::Remote;
-  const uint16_t color = enabled ? kAccent : kTextDim;
+  const bool selected = mode_ == UiMode::Remote;
+  const bool enabled = selected && pairing_.connected();
+  const uint16_t color = enabled ? kAccent : selected ? kBad : kTextDim;
   if (enabled) {
     canvas_.fillRoundRect(x, y, 18, 12, 2, color);
   } else {
@@ -852,6 +1068,30 @@ void DeviceUi::drawKeyboardModeIcon(int x, int y) {
   }
   canvas_.fillRect(x + 3, y + 7, 12, 2, keyColor);
   if (!enabled) canvas_.drawLine(x + 2, y + 11, x + 16, y + 1, kBad);
+}
+
+void DeviceUi::drawVoiceStatusIcon(int x, int y) {
+  const bool active = audio_.active();
+  const uint16_t color = active ? kGood : kTextDim;
+  if (active) {
+    canvas_.fillRoundRect(x + 3, y, 6, 9, 3, color);
+    canvas_.drawFastVLine(x + 5, y + 2, 5, TFT_BLACK);
+  } else {
+    canvas_.drawRoundRect(x + 3, y, 6, 9, 3, color);
+  }
+  canvas_.drawFastVLine(x + 1, y + 4, 3, color);
+  canvas_.drawFastVLine(x + 10, y + 4, 3, color);
+  canvas_.drawFastHLine(x + 2, y + 11, 8, color);
+  canvas_.drawFastVLine(x + 6, y + 9, 4, color);
+}
+
+void DeviceUi::drawAutoEnterIcon(int x, int y) {
+  const uint16_t color = settings_.sendEnterAfterVoice ? kGood : kTextDim;
+  canvas_.drawRoundRect(x, y, 12, 12, 2, color);
+  canvas_.drawFastVLine(x + 8, y + 3, 5, color);
+  canvas_.drawFastHLine(x + 3, y + 7, 6, color);
+  canvas_.drawLine(x + 3, y + 7, x + 5, y + 5, color);
+  canvas_.drawLine(x + 3, y + 7, x + 5, y + 9, color);
 }
 
 void DeviceUi::drawHint(const String& text) {
@@ -1311,47 +1551,54 @@ void DeviceUi::drawCodexPlatformEffect(PetVisualState state, uint32_t now) {
   }
 }
 
-void DeviceUi::drawHomeStatusLine(int x, int y, int width,
-                                  PetVisualState state) {
-  canvas_.fillRect(x, y, width, 3, kBackground);
-  if (state == PetVisualState::Thinking || state == PetVisualState::Running) {
-    const int segmentWidth = state == PetVisualState::Running ? 24 : 16;
-    const int travel = width - segmentWidth;
-    const int speed = state == PetVisualState::Running ? 45 : 75;
-    const int step = (millis() / speed) % (travel * 2);
-    const int offset = step <= travel ? step : travel * 2 - step;
-    canvas_.fillRect(x + offset, y, segmentWidth, 3, kAccent);
-  } else if (state == PetVisualState::NeedsInput) {
-    const int promptWidth = (millis() / 320) % 2 == 0 ? width : width * 3 / 5;
-    canvas_.fillRect(x, y, promptWidth, 3, kAccentWarm);
+void DeviceUi::drawHomeStatusBar(int x, int y, int width, int height,
+                                 PetVisualState state) {
+  const uint16_t color = codexStatusColor();
+  const uint32_t speed = state == PetVisualState::Running ? 55
+                           : state == PetVisualState::Thinking ? 80
+                           : state == PetVisualState::NeedsInput ? 95
+                           : 130;
+  const int phase = (millis() / speed) % 32;
+  const int pulse = phase <= 16 ? phase : 32 - phase;
+  uint8_t amount = 120 + pulse * 5;
+  if (state == PetVisualState::NeedsInput) {
+    amount = 145 + pulse * 6;
+  } else if (state == PetVisualState::Ready) {
+    amount = 165 + pulse * 4;
   } else if (state == PetVisualState::Blocked ||
              state == PetVisualState::Offline) {
-    canvas_.fillRect(x, y, width, 3, kBad);
-  } else if (state == PetVisualState::Ready) {
-    canvas_.fillRect(x, y, width, 3, kGood);
-  } else {
-    canvas_.fillRect(x, y, 24, 3, kTextDim);
+    amount = (millis() / 420) % 2 == 0 ? 225 : 145;
+  } else if (state == PetVisualState::Idle) {
+    amount = 90 + pulse * 4;
   }
+  const uint16_t background = blendRgb565(kPanelDeep, color, amount);
+  const uint8_t red = ((background >> 11) & 0x1F) * 255 / 31;
+  const uint8_t green = ((background >> 5) & 0x3F) * 255 / 63;
+  const uint8_t blue = (background & 0x1F) * 255 / 31;
+  const uint16_t luminance = (red * 54 + green * 183 + blue * 19) / 256;
+  const uint16_t textColor = luminance >= 132 ? TFT_BLACK : TFT_WHITE;
+  canvas_.fillRect(x, y, width, height, background);
+  canvas_.setTextFont(1);
+  canvas_.setTextSize(1);
+  canvas_.setTextDatum(middle_center);
+  canvas_.setTextColor(textColor, background);
+  canvas_.drawString(codexStatusLabel(state), x + width / 2,
+                     y + height / 2);
+  canvas_.setTextDatum(top_left);
 }
 
 void DeviceUi::drawMain() {
   const PetVisualState visual = codexVisualState();
+  const uint32_t now = millis();
+  const PetVisualState petVisual = now < petInteractionUntilMs_
+                                       ? petInteractionState_
+                                       : visual;
   drawAngularPanel(4, 24, 108, 105, mainSelection_ == 0);
-  drawWorkshopStage(9, 29, 98, 63, visual);
-  pet_.draw(canvas_, visual, 22, 25, millis());
-  canvas_.fillRect(9, 95, 98, 30, kPanelDeep);
-  canvas_.drawFastHLine(9, 95, 98, kLine);
-  canvas_.fillRect(13, 99, 3, 3, codexStatusColor());
-  canvas_.setTextFont(1);
-  canvas_.setTextSize(1);
-  canvas_.setTextColor(TFT_WHITE, kPanelDeep);
-  canvas_.setTextDatum(top_left);
-  canvas_.drawString("CODEX", 20, 97);
-  canvas_.setTextColor(codexStatusColor(), kPanelDeep);
-  canvas_.setTextDatum(top_right);
-  canvas_.drawString(codexStatusLabel(visual), 103, 97);
-  canvas_.setTextDatum(top_left);
-  drawHomeStatusLine(13, 116, 89, visual);
+  drawWorkshopStage(9, 28, 98, 80, visual);
+  canvas_.setClipRect(9, 28, 98, 80);
+  pet_.draw(canvas_, petVisual, 18, 28, now, 80);
+  canvas_.clearClipRect();
+  drawHomeStatusBar(9, 109, 98, 16, visual);
 
   drawAngularPanel(118, 24, 58, 50, mainSelection_ == 1);
   drawAngularPanel(179, 24, 57, 50, mainSelection_ == 2);
@@ -1380,8 +1627,10 @@ void DeviceUi::drawMain() {
       ? String("ON") : String(settings_.screenTimeoutSec) + "S";
   canvas_.setTextDatum(middle_center);
   canvas_.setTextColor(TFT_WHITE);
-  canvas_.drawString("WIFI", 147, 64);
-  canvas_.drawString("MAC", 207, 64);
+  canvas_.drawString(settings_.connectionMode == ConnectionMode::Bluetooth
+                         ? "BT" : "WIFI",
+                     147, 64);
+  canvas_.drawString("PC", 207, 64);
   canvas_.drawString(String(brightnessPercent) + "%", 147, 119);
   canvas_.drawString(timeoutValue, 207, 119);
   canvas_.setTextDatum(top_left);
@@ -1433,6 +1682,54 @@ PetVisualState DeviceUi::codexVisualState() const {
   return PetVisualState::Idle;
 }
 
+void DeviceUi::updateNotifications() {
+  const bool connected = pairing_.connected();
+  const PetVisualState state = codexVisualState();
+  const uint32_t now = millis();
+  if (!notificationStateInitialized_) {
+    notificationStateInitialized_ = true;
+    lastNotificationConnected_ = connected;
+    lastNotificationState_ = state;
+    notificationArmAtMs_ = connected ? now + 3000 : 0;
+    return;
+  }
+  if (!lastNotificationConnected_ && connected) {
+    // The first agent snapshot may contain an old Ready/NeedsInput state.
+    // Treat the first three seconds as baseline instead of replaying a stale
+    // alert while Wi-Fi and the authenticated session are still settling.
+    connectionNotificationArmed_ = false;
+    notificationArmAtMs_ = now + 3000;
+    lastNotificationConnected_ = true;
+    lastNotificationState_ = state;
+    return;
+  }
+  if (connected && !connectionNotificationArmed_) {
+    if (static_cast<int32_t>(now - notificationArmAtMs_) < 0) {
+      lastNotificationState_ = state;
+      return;
+    }
+    connectionNotificationArmed_ = true;
+  }
+  const bool disconnected = connectionNotificationArmed_ &&
+                            lastNotificationConnected_ && !connected;
+  const bool needsInput = connectionNotificationArmed_ &&
+                          state == PetVisualState::NeedsInput &&
+                          lastNotificationState_ != PetVisualState::NeedsInput;
+  const bool completed = connectionNotificationArmed_ &&
+                         state == PetVisualState::Ready &&
+                         lastNotificationState_ != PetVisualState::Ready;
+  if (disconnected || needsInput || completed) {
+    audio_.requestNotification(settings_.notificationTone,
+                               settings_.notificationVolume);
+  }
+  lastNotificationConnected_ = connected;
+  lastNotificationState_ = state;
+  if (!connected) {
+    connectionNotificationArmed_ = false;
+    notificationArmAtMs_ = 0;
+  }
+}
+
 uint16_t DeviceUi::codexStatusColor() const {
   switch (codexVisualState()) {
     case PetVisualState::Running:
@@ -1442,6 +1739,8 @@ uint16_t DeviceUi::codexStatusColor() const {
     case PetVisualState::Blocked: return kBad;
     case PetVisualState::Offline: return kBad;
     case PetVisualState::Idle: return kTextDim;
+    case PetVisualState::Waving:
+    case PetVisualState::Jumping: return kGood;
   }
   return kTextDim;
 }
@@ -1449,18 +1748,20 @@ uint16_t DeviceUi::codexStatusColor() const {
 const char* DeviceUi::codexStatusLabel(PetVisualState state) const {
   switch (state) {
     case PetVisualState::Offline: return "OFFLINE";
-    case PetVisualState::Idle: return "IDLE";
-    case PetVisualState::Thinking: return "THINKING";
-    case PetVisualState::Running: return "RUNNING";
+    case PetVisualState::Idle: return "STANDBY";
+    case PetVisualState::Thinking: return "WORKING";
+    case PetVisualState::Running: return "WORKING";
     case PetVisualState::NeedsInput: return "INPUT";
     case PetVisualState::Ready: return "READY";
-    case PetVisualState::Blocked: return "BLOCK";
+    case PetVisualState::Blocked: return "BLOCKED";
+    case PetVisualState::Waving: return "HELLO";
+    case PetVisualState::Jumping: return "ENTER";
   }
   return "IDLE";
 }
 
 String DeviceUi::codexPreviewStatus() const {
-  if (!pairing_.connected()) return "Mac offline";
+  if (!pairing_.connected()) return "Computer offline";
   const AgentSession* agent = selectedAgent();
   if (!pairing_.agentOnline()) return "Waiting";
   if (!agent) return "No sessions";
@@ -1526,18 +1827,21 @@ void DeviceUi::drawCodex() {
   const AgentSession* agent = selectedAgent();
   const PetVisualState visual = codexVisualState();
   const uint32_t now = millis();
+  const PetVisualState petVisual = now < petInteractionUntilMs_
+                                       ? petInteractionState_
+                                       : visual;
   if (visual != codexEffectState_) {
     codexEffectState_ = visual;
     codexEffectStateStartedMs_ = now;
   }
   const uint16_t statusColor = codexStatusColor();
-  String title = "Codex";
+  String title = "Session";
   String activity = pairing_.connected()
-      ? "Waiting for Codex sessions" : "Codex Deck is offline";
+      ? "Waiting for sessions" : "PanPal is offline";
   if (agent && pairing_.agentOnline()) {
     title = !agent->title.isEmpty() ? agent->title
                                    : (!agent->project.isEmpty() ? agent->project
-                                                               : String("Codex"));
+                                                               : String("Session"));
     activity = agent->activity;
   }
 
@@ -1547,9 +1851,15 @@ void DeviceUi::drawCodex() {
   drawAngularPanel(kCodexRightX, kCodexPanelY, kCodexColumnWidth,
                    kCodexPanelHeight, false);
 
-  pet_.draw(canvas_, visual, kCodexPetX, kCodexPetY, now, kCodexPetSize);
+  canvas_.setClipRect(kCodexLeftX, kCodexPanelY, kCodexColumnWidth,
+                      kCodexPanelHeight);
+  pet_.draw(canvas_, petVisual, kCodexPetX, kCodexPetY, now, kCodexPetSize);
+  canvas_.clearClipRect();
   drawCodexPlatformEffect(visual, now);
   drawKeyboardModeIcon(kCodexKeyboardX, kCodexKeyboardY);
+  drawVoiceStatusIcon(kCodexKeyboardX + 22, kCodexKeyboardY - 2);
+  drawAutoEnterIcon(kCodexLeftX + kCodexColumnWidth - 16,
+                    kCodexKeyboardY);
   drawCodexSessionBadge(agentSelection_, pairing_.agentCount());
 
   canvas_.fillRoundRect(kCodexContentX - 2, kCodexTitleY - 2,
@@ -1591,7 +1901,16 @@ void DeviceUi::drawMenuRow(int y, bool selected, const String& text,
 void DeviceUi::drawWifi() {
   canvas_.setTextColor(TFT_WHITE, kBackground);
   canvas_.setCursor(6, 24);
-  canvas_.print(wifi_.scanning() ? "Scanning..." : "WiFi networks");
+  if (wifi_.scanning()) {
+    canvas_.print("Scanning...");
+  } else if (wifi_.enterpriseCredentialsRejected(
+                 wifi_.scanCount() > 0
+                     ? wifi_.scanResult(listSelection_).ssid
+                     : String())) {
+    canvas_.print("PEAP rejected: Enter edits");
+  } else {
+    canvas_.print("WiFi networks");
+  }
   const size_t count = wifi_.scanCount();
   const size_t first = listSelection_ >= 4 ? listSelection_ - 3 : 0;
   for (size_t row = 0; row < 4 && first + row < count; ++row) {
@@ -1637,17 +1956,77 @@ void DeviceUi::drawPassword() {
   drawHint("Enter connect  Esc cancel");
 }
 
+void DeviceUi::drawConnection() {
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(6, 24);
+  canvas_.print(settings_.connectionModeChosen ? "Connection mode" :
+                                                "Choose connection");
+  const bool wifiSelected = settings_.connectionModeChosen &&
+                            settings_.connectionMode == ConnectionMode::Wifi;
+  const bool btSelected = settings_.connectionModeChosen &&
+                          settings_.connectionMode == ConnectionMode::Bluetooth;
+  drawMenuRow(36, listSelection_ == 0, "Wi-Fi", wifiSelected ? "SELECTED" : "");
+  drawMenuRow(54, listSelection_ == 1, "Bluetooth", btSelected ? "SELECTED" : "");
+  drawMenuRow(72, listSelection_ == 2, "Configure Wi-Fi",
+              settings_.connectionMode == ConnectionMode::Wifi ? "" : "switch first");
+  if (settings_.connectionModeChosen) {
+    drawMenuRow(90, listSelection_ == 3, "< Back");
+  }
+  drawHint(connectionSaveFailed_ ? "SAVE FAILED - retry"
+                                 : "Mode changes restart the device");
+}
+
+void DeviceUi::drawEnterpriseUsername() {
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(8, 24);
+  canvas_.print("WPA2-Enterprise PEAP");
+  canvas_.setTextColor(kAccent, kBackground);
+  canvas_.setCursor(8, 40);
+  canvas_.print(clipped(pendingSsid_, 30));
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(8, 58);
+  canvas_.print("Username:");
+  canvas_.drawRoundRect(6, 70, kWidth - 12, 26, 4, kTextDim);
+  canvas_.setCursor(12, 78);
+  canvas_.print(clipped(textEntry_, 29));
+  drawHint("Enter next  Esc cancel");
+}
+
+void DeviceUi::drawEnterprisePassword() {
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setCursor(8, 24);
+  canvas_.print("Enterprise password:");
+  canvas_.setTextColor(kAccent, kBackground);
+  canvas_.setCursor(8, 40);
+  canvas_.print(clipped(pendingSsid_, 30));
+  canvas_.drawRoundRect(6, 58, kWidth - 12, 26, 4, kTextDim);
+  canvas_.setCursor(12, 66);
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  if (revealEnterprisePassword_) {
+    canvas_.print(clipped(textEntry_, 29));
+  } else {
+    for (size_t i = 0; i < textEntry_.length(); ++i) canvas_.print('*');
+  }
+  canvas_.setTextColor(kTextDim, kBackground);
+  canvas_.setCursor(8, 96);
+  canvas_.print("PEAP/MSCHAPv2");
+  drawHint(revealEnterprisePassword_
+               ? "Tab hide  Enter connect  Esc back"
+               : "Tab show  Enter connect  Esc back");
+}
+
 void DeviceUi::drawComputers() {
   canvas_.setTextColor(TFT_WHITE, kBackground);
   canvas_.setCursor(6, 24);
-  canvas_.print("Paired Macs");
+  canvas_.print("Paired computers");
   const size_t total = pairing_.pairedCount() + 2;
   const size_t first = listSelection_ >= 4 ? listSelection_ - 3 : 0;
   for (size_t row = 0; row < 4 && first + row < total; ++row) {
     const size_t index = first + row;
     if (index < pairing_.pairedCount()) {
-      String state = pairing_.pairedCurrent(index) ? "NOW" :
-                     (pairing_.pairedOnline(index) ? "online" : "offline");
+      String state = pairing_.paired(index).transport == ConnectionMode::Bluetooth
+                         ? "BT" : "WiFi";
+      if (pairing_.pairedCurrent(index)) state += " NOW";
       drawMenuRow(36 + row * 18, index == listSelection_,
                   clipped(pairing_.paired(index).name, 16), state);
     } else if (index == pairing_.pairedCount()) {
@@ -1662,7 +2041,23 @@ void DeviceUi::drawComputers() {
 void DeviceUi::drawAddComputer() {
   canvas_.setTextColor(TFT_WHITE, kBackground);
   canvas_.setCursor(6, 24);
-  canvas_.print("Nearby Macs");
+  if (settings_.connectionMode == ConnectionMode::Bluetooth) {
+    canvas_.print("Bluetooth pairing");
+    canvas_.setCursor(6, 48);
+    if (pairing_.bluetoothPairingOpen()) {
+      canvas_.printf("Open for %lus", static_cast<unsigned long>(
+                         pairing_.bluetoothPairingSecondsRemaining()));
+      canvas_.setCursor(6, 66);
+      canvas_.print("Start PanPal on Windows");
+    } else {
+      canvas_.print("Pairing window closed");
+      canvas_.setCursor(6, 66);
+      canvas_.print("Go back and Add computer again");
+    }
+    drawHint("Esc back");
+    return;
+  }
+  canvas_.print("Nearby computers");
   const size_t count = pairing_.discoveredCount();
   const size_t first = listSelection_ >= 4 ? listSelection_ - 3 : 0;
   for (size_t row = 0; row < 4 && first + row < count; ++row) {
@@ -1672,15 +2067,24 @@ void DeviceUi::drawAddComputer() {
   }
   if (count == 0) {
     canvas_.setCursor(6, 60);
-    canvas_.print("Searching for Codex Deck...");
+    canvas_.print("Searching for PanPal...");
   }
   drawHint("Tab rescan  Esc back");
+}
+
+void DeviceUi::drawRestarting() {
+  canvas_.setTextColor(TFT_WHITE, kBackground);
+  canvas_.setTextSize(2);
+  canvas_.setTextDatum(middle_center);
+  canvas_.drawString("Restarting...", kWidth / 2, kHeight / 2);
+  canvas_.setTextDatum(top_left);
+  canvas_.setTextSize(1);
 }
 
 void DeviceUi::drawPairCode() {
   canvas_.setTextColor(TFT_WHITE, kBackground);
   canvas_.setCursor(8, 28);
-  canvas_.print("Enter the 6-digit code on the Mac");
+  canvas_.print("Enter the 6-digit code on computer");
   canvas_.setTextSize(3);
   canvas_.setTextColor(kAccent, kBackground);
   canvas_.setTextDatum(middle_center);
@@ -1693,24 +2097,30 @@ void DeviceUi::drawPairCode() {
 }
 
 void DeviceUi::drawBrightness() {
-  canvas_.setTextDatum(middle_center);
-  canvas_.setTextSize(3);
-  canvas_.setTextColor(TFT_WHITE, kBackground);
-  canvas_.drawString(String(settings_.brightness), kWidth / 2, 53);
-  canvas_.setTextSize(1);
-  canvas_.setTextColor(kTextDim, kBackground);
-  canvas_.drawString("Display brightness", kWidth / 2, 76);
-
-  canvas_.drawRoundRect(28, 88, 184, 12, 3, kTextDim);
-  const int fill = max(3, 178 * settings_.brightness / 255);
-  canvas_.fillRoundRect(31, 91, fill, 6, 2, kAccent);
-  const size_t selected = brightnessLevelIndex(settings_.brightness);
-  for (size_t i = 0; i < sizeof(kBrightnessLevels); ++i) {
-    canvas_.fillCircle(64 + i * 37, 110, 3,
-                       i == selected ? kAccent : kPanel);
+  const int volumePercent =
+      (settings_.notificationVolume * 100 + 127) / 255;
+  const String values[] = {
+      String((settings_.brightness * 100 + 127) / 255) + "%",
+      notificationToneName(settings_.notificationTone),
+      settings_.notificationVolume == 0 ? String("MUTE")
+                                        : String(volumePercent) + "%",
+  };
+  const char* labels[] = {"BRIGHTNESS", "ALERT TONE", "ALERT VOLUME"};
+  for (uint8_t row = 0; row < 3; ++row) {
+    const int y = 29 + row * 27;
+    const bool selected = displaySoundSelection_ == row;
+    const uint16_t background = selected ? kPanelSelected : kPanel;
+    canvas_.fillRoundRect(12, y, 216, 22, 4, background);
+    if (selected) canvas_.drawRoundRect(12, y, 216, 22, 4, kAccent);
+    canvas_.setTextDatum(middle_left);
+    canvas_.setTextColor(selected ? TFT_WHITE : kTextDim, background);
+    canvas_.drawString(labels[row], 20, y + 11);
+    canvas_.setTextDatum(middle_right);
+    canvas_.setTextColor(selected ? kAccent : kTextDim, background);
+    canvas_.drawString(values[row], 220, y + 11);
   }
   canvas_.setTextDatum(top_left);
-  drawHint("Left/right adjust  Esc back");
+  drawHint("Up/down select  Enter preview");
 }
 
 void DeviceUi::drawScreenOff() {

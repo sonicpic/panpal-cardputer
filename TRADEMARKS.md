@@ -1,6 +1,6 @@
 # Trademarks and names
 
-Codex Deck is an independent project. The following names are used only to
+PanPal is an independent project. The following names are used only to
 describe compatibility or integration:
 
 - M5Stack and Cardputer are trademarks of M5Stack.
@@ -9,6 +9,6 @@ describe compatibility or integration:
 - BlackHole is a project and mark associated with Existential Audio Inc.
 - Typeless is a third-party application.
 
-Codex Deck does not use third-party logos, installers, or branding to imply
+PanPal does not use third-party logos, installers, or branding to imply
 endorsement. The CardBridge microphone driver is not an official BlackHole
 release and does not create USB hardware.

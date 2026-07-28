@@ -1,6 +1,6 @@
-# Contributing to Codex Deck
+# Contributing to PanPal
 
-Codex Deck combines ESP32-S3 firmware, a Python bridge, a Swift macOS menu bar
+PanPal combines ESP32-S3 firmware, a Python bridge, a Swift macOS menu bar
 app, and a GPLv3-derived audio driver. Read the current guides in
 [`docs/README.md`](docs/README.md) before changing code.
 

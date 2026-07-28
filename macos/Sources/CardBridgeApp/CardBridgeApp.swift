@@ -81,11 +81,11 @@ private struct MenuBarStatusLabel: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: symbol)
-            Text("Codex Deck")
+            Text("PanPal")
                 .lineLimit(1)
         }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Codex Deck")
+            .accessibilityLabel("PanPal")
             .accessibilityValue(Text(accessibilityStatus))
     }
 

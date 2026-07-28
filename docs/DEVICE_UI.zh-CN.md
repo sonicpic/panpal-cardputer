@@ -32,13 +32,13 @@ python3 tools/render_ui_screenshots.py
 
 | 视觉状态 | 上游状态 | 主页标签 | 详情页常见文案 | 样式 |
 | --- | --- | --- | --- | --- |
-| 离线 | Mac 链路断开，或 `offline` | `OFFLINE` | Mac 链路断开时显示 `Codex Deck is offline` | 失败宠物配红色 X 指示；真正断线时宠物上还会出现灰色斜线 |
-| 空闲 | `idle`、没有选中会话，或 Agent 状态流不可用 | `IDLE` | 已连接但无可用会话时显示 `Waiting for Codex sessions`；确认提醒后显示 `Session ready` | 灰色空闲宠物、电源符号、安静的数据管道和短主页状态条 |
+| 离线 | 电脑链路断开，或 `offline` | `OFFLINE` | 电脑链路断开时显示 `PanPal is offline` | 失败宠物配红色 X 指示；真正断线时宠物上还会出现灰色斜线 |
+| 空闲 | `idle`、没有选中会话，或 Agent 状态流不可用 | `STANDBY` | 已连接但无可用会话时显示 `Waiting for sessions`；确认提醒后显示 `Session ready` | 空闲宠物、电源符号、安静的数据管道和呼吸状态灯 |
 | 思考中 | `running` + `thinking`；缺少 phase 时也按此状态处理 | `THINKING` | `Understanding the task`、`Understanding the task...` 或 `Thinking...` | 等待宠物、较慢的青色遥测动画和移动主页状态段 |
 | 执行中 | `running` + `tool` | `RUNNING` | `Editing project files`、`Running a command`、`Searching references`、`Working with an image` 或 `Running tests` 等安全摘要 | 运行宠物、更快的青色遥测、数据包、平台层和更宽的移动主页状态段 |
-| 等待输入 | `needs_input` | `INPUT` | `Waiting for your approval` 或 `Waiting for your answer` | 等待宠物配橙色提示光标、呼吸式数据管道和脉冲主页状态条 |
-| 已完成 | `ready` | `READY` | 通常为 `Task completed`；最后一条安全公开活动也可能保留 | 检查宠物配绿色对勾、填满的数据管道、完成平台特效和实心主页状态条 |
-| 已阻塞 | `blocked` | `BLOCK` | `Task encountered a problem` | 失败宠物配红色 X 指示、断开的数据管道和实心主页状态条 |
+| 等待输入 | `needs_input` | `INPUT` | `Waiting for your approval` 或 `Waiting for your answer` | 等待宠物配橙色提示光标、呼吸式数据管道和变形橙色状态灯 |
+| 已完成 | `ready` | `READY` | 通常为 `Task completed`；最后一条安全公开活动也可能保留 | 检查宠物配绿色对勾、填满的数据管道、完成平台特效和绿色状态灯 |
+| 已阻塞 | `blocked` | `BLOCKED` | `Task encountered a problem` | 失败宠物配红色 X 指示、断开的数据管道和方形红色状态灯 |
 
 处于 `READY` 或 `BLOCK` 时按 `Enter`，会确认 Cardputer 上的提醒：会话转为
 `IDLE`，未读标记清除，详情文案变为 `Session ready`。这只是 Cardputer 视图
@@ -49,7 +49,7 @@ python3 tools/render_ui_screenshots.py
 
 | 条件 | 详情页标题 | 详情页正文 |
 | --- | --- | --- |
-| Mac 链路断开 | `Codex` | `Codex Deck is offline` |
+| 电脑链路断开 | `Session` | `PanPal is offline` |
 | Mac 已连接，但没有可用的 Codex 会话 | `Codex` | `Waiting for Codex sessions` |
 | 有活动会话 | 会话标题、项目名或 `Codex` | 最近一条经过隐私裁剪的活动摘要 |
 
@@ -65,6 +65,12 @@ python3 tools/render_ui_screenshots.py
 
 ## 键盘模式指示
 
-键盘图标位于主页状态栏最左侧，并悬浮在详情场景左上角。青色实心键盘表示键盘
-转发模式已启用；如果麦克风没有静音，音频通道也会工作。带红色斜线的灰色描边
-键盘表示当前使用本地导航，转发关闭。BtnA 只切换这个模式，不会改变当前页面。
+键盘图标位于主页状态栏最左侧，并悬浮在详情场景左上角。青色实心键盘表示已选择
+Remote 模式且 Bridge 已连接；灰色表示本地模式；红色斜线表示选择了 Remote 模式，
+但当前没有可用的 Bridge 连接。`Fn+Tab` 只切换这个模式，不会改变当前页面。
+G0/BtnA 用于按住说话和双击锁定，`Fn+Space` 提供相同的按住说话入口。独立的
+麦克风图标只会在 Bridge 确认语音启动成功后变绿。
+
+`Fn+Enter` 用于开关语音结束后的自动回车，绿色回车图标表示已开启。主页的亮度
+按钮会打开合并后的“Display & Sound”页面，可选择提示音、音量并试听。等待用户、
+任务完成和连接断开时各只响一次，不会在状态持续期间重复播放。

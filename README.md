@@ -1,12 +1,16 @@
-# Codex Deck
+# PanPal
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Codex Deck** is an independent pocket hardware companion for OpenAI Codex,
+> **PanPal** is a personal voice and coding companion for OpenAI Codex,
 > turning the M5Stack Cardputer ADV into a wireless keyboard, microphone, and
 > live agent-status display for macOS.
 
-Codex Deck is not an official OpenAI product and is not endorsed by OpenAI.
+PanPal is not an official OpenAI product and is not endorsed by OpenAI.
+
+PanPal is derived from
+[`voltwake/cardputer-codex-deck`](https://github.com/voltwake/cardputer-codex-deck)
+and preserves its MIT license, copyright notice, and Git history.
 
 The current 1.x macOS package and bridge retain the internal `CardBridge`
 compatibility name so existing pairings, permissions, and audio settings can
@@ -53,12 +57,12 @@ Installation and development documentation starts at
 acceptance records remain in `docs/`, but they are not the canonical install
 path.
 
-The repository slug is `cardputer-codex-deck`; the current hardware target is
+The repository slug is `panpal-cardputer`; the current hardware target is
 the M5Stack Cardputer ADV.
 
 ## Install a release
 
-Download the signed/notarized Codex Deck App and matching firmware from GitHub
+Download the signed/notarized PanPal App and matching firmware from GitHub
 Releases. Verify `SHA256SUMS`, move `CardBridge.app` to `/Applications`, launch
 it, and follow the one-time macOS permission prompts. See
 [`docs/INSTALL.md`](docs/INSTALL.md) for the complete flow.
@@ -66,14 +70,25 @@ it, and follow the one-time macOS permission prompts. See
 From a checkout, `./scripts/install-release.sh` downloads the release, verifies
 its checksum, mounts the DMG, and installs the App automatically.
 
-The packaged target is Apple Silicon on macOS 13 or newer. Codex Deck requires a
+The packaged target is Apple Silicon on macOS 13 or newer. PanPal requires a
 Cardputer ADV on a 2.4 GHz Wi-Fi network. Installing the Mac App and flashing
 the Cardputer firmware are separate operations.
+
+## Windows custom build
+
+This fork additionally contains a Windows Bridge, an Inno Setup installer, and
+the Spear Rib firmware asset. It uses Windows `SendInput` for keyboard events,
+Windows DPAPI for pairing tokens, and a separately installed VB-CABLE virtual
+audio endpoint for microphone routing. See [`docs/WINDOWS.md`](docs/WINDOWS.md)
+for the reproducible build, installer, pairing, and enterprise Wi-Fi workflow.
+The Windows build supports Wi-Fi or BLE, semantic push-to-talk with G0 or
+`Fn+Space`, a configurable microphone/shortcut tray UI, and Codex status from
+VS Code or the ChatGPT/Codex desktop app.
 
 ## Use the macOS menu bar App
 
 `CardBridge.app` is the internal bundle name for the current 1.x line and is
-displayed publicly as Codex Deck. It bundles its signed Bridge Agent, starts
+displayed publicly as PanPal. It bundles its signed Bridge Agent, starts
 bridging immediately, appears only in the menu bar, reconnects paired M5 devices
 automatically, and does not require Python, a virtual environment, or a terminal.
 
@@ -88,7 +103,7 @@ Build from source on Apple Silicon:
 ./scripts/healthcheck.sh
 ```
 
-On first launch, Codex Deck (`CardBridge.app`) offers to install its bundled
+On first launch, PanPal (`CardBridge.app`) offers to install its bundled
 `CardBridge Microphone` HAL driver with one macOS administrator prompt, then
 requests **System Settings → Privacy & Security → Accessibility** for keyboard
 forwarding. The microphone publishes an input-only USB-compatible Core Audio
@@ -109,7 +124,7 @@ Keychain, or Codex Hook trust. See [`AGENTS.md`](AGENTS.md) and the machine-read
 ## Build firmware
 
 ```sh
-cd /path/to/cardputer-codex-deck
+cd /path/to/panpal-cardputer
 pio run
 ```
 
@@ -185,8 +200,14 @@ License 1.1; the required notice is in `assets/fonts/LICENSE-SourceHanSans.txt`.
 
 ## Device controls
 
-- BtnA toggles keyboard forwarding. The keyboard icon at the far left of the
-  status bar shows whether forwarding is on; toggling it never changes the page.
+- G0/BtnA is push-to-talk: hold and release for a normal utterance, double-click
+  to latch a long utterance, then press once to stop. `Fn+Space` is the keyboard
+  push-to-talk alternative.
+- `Fn+Tab` toggles keyboard forwarding. A filled cyan keyboard means Remote
+  mode is selected and the Bridge is connected; a red/slashed keyboard means
+  Remote mode is selected but no usable computer connection exists.
+- The separate microphone icon turns green only after the Bridge confirms that
+  microphone routing and the configured voice shortcut started successfully.
 - With keyboard forwarding on, `Fn+;`, `Fn+,`, `Fn+.`, and `Fn+/` send Up, Left,
   Down, and Right; `Fn+\`` sends Escape. Shift is attached to the target key as a
   macOS modifier; Ctrl/Cmd/Option retain normal down/up events.
@@ -199,7 +220,9 @@ License 1.1; the required notice is in `assets/fonts/LICENSE-SourceHanSans.txt`.
   saved item. No Fn chord is required.
 - Password entry preserves case and shifted symbols: hold `Shift` while typing
   uppercase letters or symbols. `Backspace` edits and the backtick/ESC key cancels.
-- Wi-Fi setup always starts from a scan list; only the password is typed.
+- Wi-Fi setup always starts from a scan list. WPA2-Enterprise networks ask for
+  a username and password and use EAP-PEAP/MSCHAPv2; ordinary encrypted
+  networks only ask for a password.
 
 ## Project policy
 
@@ -209,3 +232,5 @@ redistributing, read [`NOTICE.md`](NOTICE.md), [`THIRD_PARTY_NOTICES.md`](THIRD_
 and [`assets/ASSET_SOURCES.md`](assets/ASSET_SOURCES.md). Contributions, security
 reports, and support requests are described in [`CONTRIBUTING.md`](CONTRIBUTING.md),
 [`SECURITY.md`](SECURITY.md), and [`SUPPORT.md`](SUPPORT.md).
+- `Fn+Enter` toggles the firmware-owned automatic Enter after voice input; the
+  small return-arrow indicator is green while enabled.

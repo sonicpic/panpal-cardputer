@@ -14,6 +14,8 @@ enum class PetVisualState : uint8_t {
   NeedsInput,
   Ready,
   Blocked,
+  Waving,
+  Jumping,
 };
 
 class PetRenderer {

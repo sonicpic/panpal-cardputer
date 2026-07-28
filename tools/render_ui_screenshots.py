@@ -136,7 +136,7 @@ def draw_status_bar(draw: ImageDraw.ImageDraw) -> None:
     rect(draw, 0, 0, WIDTH, 20, fill=BLACK)
     draw_keyboard(draw, 4, 4, True)
     draw_wifi(draw, 28, 4, 4, active=GOOD, inactive=PANEL)
-    centered_text(draw, (120, 10), "CODEX DECK", face=FONT_SMALL)
+    centered_text(draw, (120, 10), "PANPAL", face=FONT_SMALL)
     rect(draw, 214, 5, 20, 10, outline=TEXT_DIM)
     rect(draw, 234, 8, 2, 4, fill=TEXT_DIM)
     rect(draw, 216, 7, 12, 6, fill=GOOD)

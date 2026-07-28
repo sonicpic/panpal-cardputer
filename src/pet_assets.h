@@ -8,7 +8,7 @@ namespace cardbridge::pet_assets {
 constexpr uint8_t kFrameWidth = 72;
 constexpr uint8_t kFrameHeight = 72;
 
-enum class AnimationId : uint8_t { Idle, Failed, Waiting, Running, Review };
+enum class AnimationId : uint8_t { Idle, Waving, Jumping, Failed, Waiting, Running, Review };
 
 struct Frame {
   const uint8_t* data;

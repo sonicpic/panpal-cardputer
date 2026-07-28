@@ -14,7 +14,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("常规") {
-                Toggle("登录后自动启动 Codex Deck", isOn: $launchAtLogin)
+                Toggle("登录后自动启动 PanPal", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { enabled in
                         updateLoginItem(enabled)
                     }
@@ -40,7 +40,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Text("请在列表中允许 Codex Deck；该权限只用于把 M5 按键发送到 Mac。")
+                Text("请在列表中允许 PanPal；该权限只用于把 M5 按键发送到 Mac。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -128,7 +128,7 @@ struct SettingsView: View {
             }
 
             Section("版本") {
-                LabeledContent("Codex Deck App", value: "\(GeneratedVersion.app) (\(GeneratedVersion.appBuild))")
+                LabeledContent("PanPal App", value: "\(GeneratedVersion.app) (\(GeneratedVersion.appBuild))")
                 LabeledContent("Bridge Agent", value: "\(client.snapshot.agent.version) (\(client.snapshot.agent.build))")
                 if let device = client.snapshot.devices.first {
                     LabeledContent("M5 固件", value: "\(device.firmware) (\(device.firmwareBuild))")

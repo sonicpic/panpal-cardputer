@@ -38,6 +38,8 @@ class AnimationSpec:
 
 SPECS = (
     AnimationSpec("idle", "Idle", 0, (280, 110, 110, 140, 140, 320)),
+    AnimationSpec("waving", "Waving", 3, (130, 130, 130, 260)),
+    AnimationSpec("jumping", "Jumping", 4, (110, 110, 140, 110, 220)),
     AnimationSpec("failed", "Failed", 5, (140, 140, 140, 140, 140, 140, 140, 240)),
     AnimationSpec("waiting", "Waiting", 6, (150, 150, 150, 150, 150, 260)),
     AnimationSpec("running", "Running", 7, (120, 120, 120, 120, 120, 220)),

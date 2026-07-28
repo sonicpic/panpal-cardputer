@@ -4,6 +4,8 @@ namespace cardbridge {
 
 pet_assets::AnimationId PetRenderer::animationFor(PetVisualState state) const {
   switch (state) {
+    case PetVisualState::Waving: return pet_assets::AnimationId::Waving;
+    case PetVisualState::Jumping: return pet_assets::AnimationId::Jumping;
     case PetVisualState::Running: return pet_assets::AnimationId::Running;
     case PetVisualState::Thinking:
     case PetVisualState::NeedsInput: return pet_assets::AnimationId::Waiting;

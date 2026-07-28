@@ -1,8 +1,8 @@
-# Codex Deck security policy
+# PanPal security policy
 
 ## Scope
 
-Codex Deck runs on a trusted local Mac and exchanges authenticated control and
+PanPal runs on a trusted local computer and exchanges authenticated control and
 audio traffic with a paired Cardputer over the local network. The bridge does
 not provide a public Internet service. Pairing tokens are stored in the Mac
 Keychain by the packaged app and in mode-0600 development configuration when

@@ -17,8 +17,8 @@ namespace cardbridge {
 //    visible; a keyboard icon in the status bar shows that forwarding is on.
 //  - Local mode: every key drives this UI with natural bindings
 //    (;.,/ + ijkl arrows, Enter, Esc/Backspace) — no Fn chords.
-//  - BtnA (the physical button beside the screen) toggles modes; it is not
-//    part of the keyboard so it can never collide with typing.
+//  - Fn+Tab toggles modes. BtnA/G0 is reserved for push-to-talk and its
+//    double-click latch, so keyboard routing cannot end a voice session.
 // All rendering goes through an off-screen canvas to kill flicker.
 enum class UiMode : uint8_t { Local, Remote };
 
@@ -46,13 +46,17 @@ class DeviceUi {
   enum class Page : uint8_t {
     Main,
     Codex,
+    Connection,
     Wifi,
     WifiPassword,
+    WifiEnterpriseUsername,
+    WifiEnterprisePassword,
     Computers,
     AddComputer,
     PairCode,
     Brightness,
     ScreenOff,
+    Restarting,
   };
 
   // input
@@ -68,13 +72,17 @@ class DeviceUi {
   void handleInput();
   void handleMain();
   void handleCodex();
+  void handleConnection();
   void handleWifi();
   void handlePassword();
+  void handleEnterpriseUsername();
+  void handleEnterprisePassword();
   void handleComputers();
   void handleAddComputer();
   void handlePairCode();
   void handleBrightness();
   void handleScreenOff();
+  void restartWithConnectionMode(ConnectionMode mode);
   void appendTypedText(String& destination, size_t maxLength, bool digitsOnly);
   void setPage(Page page);
   void setMode(UiMode mode);
@@ -92,6 +100,8 @@ class DeviceUi {
   void prepareCodexActivity(const String& activity);
   String fitWithEllipsis(String text, int width, bool force);
   void drawKeyboardModeIcon(int x, int y);
+  void drawVoiceStatusIcon(int x, int y);
+  void drawAutoEnterIcon(int x, int y);
   void drawGameBackground();
   void drawAngularPanel(int x, int y, int width, int height, bool selected);
   void drawWorkshopStage(int x, int y, int width, int height,
@@ -100,18 +110,23 @@ class DeviceUi {
   void drawWorkshopDataConduit(PetVisualState state, uint32_t now);
   void drawCodexScene(PetVisualState state);
   void drawCodexPlatformEffect(PetVisualState state, uint32_t now);
-  void drawHomeStatusLine(int x, int y, int width, PetVisualState state);
+  void drawHomeStatusBar(int x, int y, int width, int height,
+                         PetVisualState state);
   void drawMain();
   void drawCodex();
+  void drawConnection();
   void drawQuotaRow(int y, const char* label, int remaining,
                     AgentQuotaMode mode);
   void drawWifi();
   void drawPassword();
+  void drawEnterpriseUsername();
+  void drawEnterprisePassword();
   void drawComputers();
   void drawAddComputer();
   void drawPairCode();
   void drawBrightness();
   void drawScreenOff();
+  void drawRestarting();
   void drawHomeSettingRow(int y, uint8_t index, const String& text,
                           const String& value);
   void drawMenuRow(int y, bool selected, const String& text,
@@ -127,6 +142,7 @@ class DeviceUi {
   uint16_t codexStatusColor() const;
   const char* codexStatusLabel(PetVisualState state) const;
   String codexPreviewStatus() const;
+  void updateNotifications();
 
   SettingsStore& store_;
   WifiManager& wifi_;
@@ -159,13 +175,27 @@ class DeviceUi {
   String activityLines_[4];
   uint8_t activityLineCount_ = 0;
   String pendingSsid_;
+  String pendingEnterpriseUsername_;
   String textEntry_;
+  bool revealEnterprisePassword_ = true;
   bool screenOff_ = false;
   bool consumesKeyboard_ = false;
   bool suppressUntilRelease_ = false;
+  bool modeChordWasDown_ = false;
+  bool autoEnterChordWasDown_ = false;
+  bool notificationStateInitialized_ = false;
+  bool lastNotificationConnected_ = false;
+  bool connectionNotificationArmed_ = false;
+  uint32_t notificationArmAtMs_ = 0;
+  PetVisualState lastNotificationState_ = PetVisualState::Offline;
+  uint8_t displaySoundSelection_ = 0;
+  uint32_t petInteractionUntilMs_ = 0;
+  PetVisualState petInteractionState_ = PetVisualState::Idle;
   uint32_t lastActivityMs_ = 0;
   uint32_t lastRenderMs_ = 0;
   uint32_t lastComputerScanMs_ = 0;
+  uint32_t restartAtMs_ = 0;
+  bool connectionSaveFailed_ = false;
 };
 
 }  // namespace cardbridge
