@@ -18,6 +18,18 @@ protocol v1 where the implementation documents that behavior.
 - Pairing uses a six-digit short code and then a random long-lived token.
 - After pairing, every authenticated message carries the token.
 - Key events preserve distinct `down` and `up` actions.
+- Push-to-talk uses semantic `voice` messages with `down`, `up`, and `lock`
+  actions. Each requested edge carries a `request_id`; the Windows Bridge
+  replies with `voice_ack` after microphone routing and shortcut injection have
+  actually succeeded or failed. Firmware retries missing acknowledgements and
+  only starts local capture after a successful `down` acknowledgement. The
+  Windows Bridge owns shortcut mode and microphone restoration. An `up` may
+  include `"send_enter":true`; this firmware-owned policy schedules Enter one
+  second after shortcut release. Missing fields default to false for old
+  firmware compatibility.
+- Forwarded keyboard edges also carry a `request_id` and receive `key_ack`.
+  Firmware serializes and retries those edges so a short BLE notification loss
+  cannot silently drop a press or leave a key held on Windows.
 - Authenticated `pong` responses may include cumulative UDP receive progress
   and Core Audio output readiness. Firmware that understands these optional
   fields uses them to recover a stalled microphone path; older firmware safely
@@ -31,6 +43,19 @@ HMAC, and exactly 640 bytes of little-endian PCM16 mono audio (16 kHz, 20 ms).
 The Agent starts with a jitter depth of about 100 ms, fills missing packets with
 silence, resets stale buffered audio after a capture pause, and never
 retransmits audio.
+
+## Bluetooth GATT transport
+
+Bluetooth mode does not initialize Wi-Fi, mDNS, TCP, or UDP. The Cardputer is
+a BLE peripheral with control RX, control TX, and audio TX characteristics.
+The same newline JSON hello, six-digit code, device ID, token, and session
+manager are reused. Control records are split to the negotiated MTU.
+
+Each 20 ms PCM frame is encoded as IMA ADPCM (predictor, step index, and 160
+encoded bytes), tagged with stream ID, sequence, and timestamp, authenticated
+with an 8-byte truncated HMAC-SHA256, and fragmented into `BA` notifications.
+Windows reassembles, authenticates, decodes, and feeds the same jitter buffer.
+Only one business session per device ID is accepted.
 
 ## Local Agent API
 

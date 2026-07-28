@@ -91,7 +91,7 @@ ditto "THIRD_PARTY_NOTICES.md" "${output_dir}/THIRD_PARTY_NOTICES.md"
 "${repo_dir}/bridge/.venv/bin/python" tools/generate_sbom.py \
   --output "${output_dir}/CardBridge-${release_version}.spdx.json"
 
-download_prefix="https://github.com/voltwake/cardputer-codex-deck/releases/download/v${release_version}/"
+download_prefix="https://github.com/sonicpic/panpal-cardputer/releases/download/v${release_version}/"
 appcast_args=(
   --download-url-prefix "${download_prefix}"
   --embed-release-notes

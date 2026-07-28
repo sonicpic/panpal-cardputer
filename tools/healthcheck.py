@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify an installed Codex Deck App, Agent, driver, and local API."""
+"""Verify an installed PanPal App, Agent, driver, and local API."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def local_snapshot(path: Path) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Check an installed Codex Deck")
+    parser = argparse.ArgumentParser(description="Check an installed PanPal")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--socket", type=Path, default=SOCKET)
     parser.add_argument(
@@ -164,7 +164,7 @@ def main() -> int:
     errors = sum(item["status"] == "error" for item in checks)
     warnings = sum(item["status"] == "warning" for item in checks)
     result = {
-        "project": "Codex Deck",
+        "project": "PanPal",
         "internal_compatibility_name": "CardBridge",
         "expected": expected_app,
         "socket": str(args.socket),

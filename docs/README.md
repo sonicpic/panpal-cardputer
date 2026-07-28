@@ -1,8 +1,8 @@
-# Codex Deck documentation map
+# PanPal documentation map
 
 These are the current documents an installer or AI agent should use:
 
-- [`BRANDING.md`](BRANDING.md) — public Codex Deck name and internal
+- [`BRANDING.md`](BRANDING.md) — public PanPal name and internal
   CardBridge compatibility identifiers.
 - [`INSTALL.md`](INSTALL.md) — prebuilt and source installation, permissions,
   firmware, uninstall, and verification.

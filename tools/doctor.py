@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Codex Deck environment diagnostics.
+"""Read-only PanPal environment diagnostics.
 
 This intentionally uses only the Python standard library so it can run before
 the project virtual environment exists.
@@ -50,7 +50,7 @@ def add(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Check Codex Deck build prerequisites")
+    parser = argparse.ArgumentParser(description="Check PanPal build prerequisites")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = parser.parse_args()
 
@@ -59,7 +59,7 @@ def main() -> int:
         version_data = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
         release = str(version_data["release"])
         minimum_os = str(json.loads((ROOT / "project-install.json").read_text())["minimum_os"])
-        add(checks, "repository", "ok", f"Codex Deck {release} at {ROOT}")
+        add(checks, "repository", "ok", f"PanPal {release} at {ROOT}")
     except (OSError, ValueError, KeyError) as exc:
         release = "unknown"
         minimum_os = "13.0"
@@ -155,7 +155,7 @@ def main() -> int:
     errors = sum(item["status"] == "error" for item in checks)
     warnings = sum(item["status"] == "warning" for item in checks)
     result = {
-        "project": "Codex Deck",
+        "project": "PanPal",
         "internal_compatibility_name": "CardBridge",
         "release": release,
         "minimum_os": minimum_os,

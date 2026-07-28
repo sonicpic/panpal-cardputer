@@ -47,8 +47,8 @@ def main() -> int:
     try:
         versions = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
         manifest = json.loads((ROOT / "project-install.json").read_text(encoding="utf-8"))
-        if manifest.get("name") != "Codex Deck":
-            errors.append("project-install.json name must be Codex Deck")
+        if manifest.get("name") != "PanPal":
+            errors.append("project-install.json name must be PanPal")
         if versions["release"] != versions["mac_app"]["version"]:
             errors.append("version.json release and mac_app.version differ")
     except (OSError, ValueError, KeyError) as exc:

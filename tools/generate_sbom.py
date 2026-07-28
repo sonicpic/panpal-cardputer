@@ -33,12 +33,12 @@ def package(name: str, version: str, license_id: str = "NOASSERTION") -> dict[st
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate Codex Deck SPDX SBOM")
+    parser = argparse.ArgumentParser(description="Generate PanPal SPDX SBOM")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     versions = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
     packages = [
-        package("CodexDeck", versions["release"], "MIT"),
+        package("PanPal", versions["release"], "MIT"),
         package("CardBridge", versions["release"], "MIT"),
         package("CardBridgeMicrophone", versions["release"], "GPL-3.0-only"),
         package("SourceHanSansCN", "2.005R", "OFL-1.1"),
@@ -58,18 +58,18 @@ def main() -> int:
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
-        "name": f"Codex-Deck-{versions['release']}",
-        "documentNamespace": f"https://github.com/voltwake/cardputer-codex-deck/sbom/{versions['release']}/{uuid.uuid4()}",
+        "name": f"PanPal-{versions['release']}",
+        "documentNamespace": f"https://github.com/sonicpic/panpal-cardputer/sbom/{versions['release']}/{uuid.uuid4()}",
         "creationInfo": {
             "created": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-            "creators": ["Tool: Codex Deck tools/generate_sbom.py"],
+            "creators": ["Tool: PanPal tools/generate_sbom.py"],
         },
         "packages": sorted(packages, key=lambda item: str(item["name"]).lower()),
         "relationships": [
             {
                 "spdxElementId": "SPDXRef-DOCUMENT",
                 "relationshipType": "DESCRIBES",
-                "relatedSpdxElement": "SPDXRef-CodexDeck",
+                "relatedSpdxElement": "SPDXRef-PanPal",
             }
         ],
     }

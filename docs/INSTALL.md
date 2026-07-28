@@ -1,6 +1,6 @@
-# Install Codex Deck
+# Install PanPal
 
-Codex Deck has two supported installation paths. Use the prebuilt release for
+PanPal has two supported installation paths. Use the prebuilt release for
 normal use; build from source only when developing or when no release artifact
 supports your Mac.
 
@@ -35,11 +35,11 @@ GitHub API.
 7. If macOS asks for Local Network access, allow it so Bonjour can discover the
    Cardputer.
 8. On the Cardputer, open **Computers → Add new computer** and enter the
-   six-digit code shown by Codex Deck.
+   six-digit code shown by PanPal.
 9. In Typeless, select `CardBridge Microphone` as the microphone and use F13
    (or the configured F14–F16 key) for hold-to-record.
 
-The Codex Deck App (currently shipped as `CardBridge.app`) stores pairing secrets in the macOS Keychain and starts its supervised
+The PanPal App (currently shipped as `CardBridge.app`) stores pairing secrets in the macOS Keychain and starts its supervised
 Bridge Agent automatically. It does not require Python, a virtual environment,
 or a terminal.
 
@@ -48,7 +48,7 @@ or a terminal.
 From a clean checkout:
 
 ```sh
-cd /path/to/cardputer-codex-deck
+cd /path/to/panpal-cardputer
 ./scripts/doctor.sh
 ./scripts/bootstrap.sh
 ./scripts/test.sh

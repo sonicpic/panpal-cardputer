@@ -1,8 +1,8 @@
 {
-  "name": "Codex Deck",
+  "name": "PanPal",
   "internal_compatibility_name": "CardBridge",
-  "description": "Independent pocket hardware companion for OpenAI Codex on M5Stack Cardputer ADV",
-  "repository": "https://github.com/voltwake/cardputer-codex-deck",
+  "description": "Personal voice and coding companion for M5Stack Cardputer ADV",
+  "repository": "https://github.com/sonicpic/panpal-cardputer",
   "platform": "macOS",
   "minimum_os": "13.0",
   "architectures": ["arm64"],
