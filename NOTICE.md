@@ -1,20 +1,17 @@
 # PanPal notices
 
-PanPal is an independent derivative of
+PanPal is derived from
 [`voltwake/cardputer-codex-deck`](https://github.com/voltwake/cardputer-codex-deck).
-The original MIT license, copyright notice, and Git history are retained.
-PanPal is not affiliated with, sponsored by, or endorsed by
-M5Stack, Apple, OpenAI/Codex, Typeless, BlackHole, or any other third-party
-product named in this repository.
+The original Git history, MIT license, and copyright notice are retained.
 
-The current 1.x implementation retains `CardBridge` as an internal
-compatibility name for existing App bundles, protocols, pairings, and audio
-devices. See [`docs/BRANDING.md`](docs/BRANDING.md).
+M5Stack, Cardputer, OpenAI, Codex, ChatGPT, VB-CABLE, and other product names
+belong to their respective owners. They are used here to describe hardware or
+software compatibility.
 
-The repository contains components with licenses different from the main
-project license. Read [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) before
-redistributing source or built artifacts.
+`CardBridge` remains in executable names, configuration paths, and protocol
+identifiers for Windows upgrade compatibility. The public product name is
+PanPal.
 
-The `driver/` directory is a PanPal-specific derivative of BlackHole and
-is distributed under GPLv3. It is not an official BlackHole binary or
-installer, and must not use BlackHole branding.
+Third-party software and asset notices are listed in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and
+[`assets/ASSET_SOURCES.md`](assets/ASSET_SOURCES.md).

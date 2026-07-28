@@ -1,38 +1,28 @@
-# PanPal security policy
+# PanPal 安全说明
 
-## Scope
+PanPal 在 Windows 用户会话中运行，通过局域网或 Bluetooth LE 连接已配对的
+Cardputer。Wi-Fi 模式监听 TCP 7788 和 UDP 7789；Bluetooth 模式使用 Windows
+BLE GATT。
 
-PanPal runs on a trusted local computer and exchanges authenticated control and
-audio traffic with a paired Cardputer over the local network. The bridge does
-not provide a public Internet service. Pairing tokens are stored in the Mac
-Keychain by the packaged app and in mode-0600 development configuration when
-the source agent is used.
+配对 token 使用 DPAPI 加密，密文保存在当前用户的
+`%APPDATA%\CodexDeck\pairing-secrets`。Bridge 会验证控制消息和音频帧，未完成
+认证的设备不能发送按键或麦克风数据。
 
-The project intentionally requests macOS permissions for local-network
-discovery, Accessibility keyboard injection, and administrator installation
-of the audio driver. It must never bypass those user-consent boundaries.
+自定义额度只读密钥也使用 DPAPI 加密，保存在
+`%APPDATA%\CodexDeck\quota-secrets`。额度请求只接受 HTTPS 或本机回环地址，
+不跟随重定向，避免 Authorization 请求头被带到其他服务器。
 
-## Reporting a vulnerability
+## 报告漏洞
 
-Please do not open a public issue for an unpatched security problem. Use the
-repository's **Security → Report a vulnerability** GitHub Security Advisory
-form (or the private security contact configured there), including:
+未修复的问题请通过 GitHub Security Advisory 私下报告，并附上受影响版本、
+Windows 版本、复现步骤和影响范围。报告中不要放入真实 token、Wi-Fi 密码、
+API Key、`auth.json`、Codex 会话正文或录音。
 
-- affected version or commit;
-- operating system and architecture;
-- a minimal reproduction or proof of concept;
-- whether pairing, token exposure, arbitrary key injection, or sensitive
-  Codex data is involved.
+## 约束
 
-Do not include real pairing tokens, Wi-Fi passwords, API keys, `auth.json`,
-transcripts, or audio recordings in a report.
-
-## Security invariants
-
-- Never log or export pairing tokens.
-- Never forward Codex prompts, transcripts, reasoning, raw commands, tool
-  arguments, command output, or `auth.json`.
-- Keep the local control socket owner-only and validate the connecting UID.
-- Reject unauthenticated post-handshake device messages.
-- Keep release artifacts signed, notarized where applicable, and accompanied
-  by SHA-256 checksums and a release manifest.
+- 日志不得记录配对 token 和 Wi-Fi 密码；
+- 日志和普通配置不得记录自定义额度密钥；
+- Cardputer 状态消息不得包含提示词、会话正文、推理、命令或工具输出；
+- 认证完成前拒绝设备控制消息；
+- SendInput 只在当前 Windows 用户会话中运行；
+- 发布文件附带 SHA-256，代码签名状态写进发布说明。

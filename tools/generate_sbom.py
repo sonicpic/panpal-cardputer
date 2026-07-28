@@ -40,9 +40,8 @@ def main() -> int:
     packages = [
         package("PanPal", versions["release"], "MIT"),
         package("CardBridge", versions["release"], "MIT"),
-        package("CardBridgeMicrophone", versions["release"], "GPL-3.0-only"),
         package("SourceHanSansCN", "2.005R", "OFL-1.1"),
-        package("Sparkle", versions["updates"]["sparkle_version"], "MIT"),
+        package("VB-CABLE", "external", "NOASSERTION"),
         package("M5Cardputer", "1.1.1"),
         package("ArduinoJson", "6.21.5", "MIT"),
     ]

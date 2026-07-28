@@ -130,8 +130,8 @@ class CodexMonitorHelpersTests(unittest.TestCase):
         else:
             self.assertEqual(kwargs, {})
 
-    def test_history_poll_is_fast_but_account_poll_stays_coarse(self) -> None:
-        self.assertLessEqual(THREAD_REFRESH_SECONDS, 2)
+    def test_history_poll_balances_latency_and_background_work(self) -> None:
+        self.assertLessEqual(THREAD_REFRESH_SECONDS, 3)
         self.assertGreaterEqual(ACCOUNT_REFRESH_SECONDS, 30)
 
     def test_rollout_reader_tracks_cross_process_lifecycle_without_content(self) -> None:
@@ -185,6 +185,23 @@ class CodexMonitorHelpersTests(unittest.TestCase):
 
 
 class CodexMonitorFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_custom_quota_source_does_not_request_official_account(self) -> None:
+        class ThreadsOnlyClient:
+            async def request(self, method: str, params: object) -> dict:
+                if method == "thread/list":
+                    return {"data": []}
+                raise AssertionError(f"unexpected request: {method}")
+
+        store = AgentStore()
+        monitor = CodexMonitor(
+            store, executable="/fake/codex", quota_source="custom"
+        )
+        monitor.client = ThreadsOnlyClient()  # type: ignore[assignment]
+
+        await monitor.refresh()
+
+        self.assertEqual(store.quota_mode, "unknown")
+
     async def test_rate_limit_failure_clears_stale_values_but_keeps_subscription(self) -> None:
         class FailingLimitsClient:
             async def request(self, method: str, params: object) -> dict:

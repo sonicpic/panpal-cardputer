@@ -91,8 +91,6 @@ def _command_activity(value: object) -> str:
         return "Flashing firmware" if "upload" in arguments else "Building firmware"
     if program in {"pytest", "unittest"} or "pytest" in arguments:
         return "Running tests"
-    if program in {"xcodebuild", "swift"}:
-        return "Running Swift tests" if "test" in arguments else "Building the Mac app"
     if program in {"rg", "grep", "find"}:
         return "Searching project files"
     if program == "git":

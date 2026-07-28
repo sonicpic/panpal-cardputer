@@ -2,7 +2,7 @@
 """Install, remove, or preview CardBridge's fail-open Codex hooks.
 
 This developer-facing wrapper deliberately uses the same implementation as the
-packaged menu bar app so both paths preserve unrelated hooks and migrate legacy
+packaged Windows app so both paths preserve unrelated hooks and migrate legacy
 CardBridge reporter commands identically.
 """
 
@@ -44,7 +44,7 @@ def main() -> None:
     print(f"CardBridge Codex hooks {state} in {args.config}")
     print(
         "Restart/reload Codex, review the hook trust prompt, and approve only "
-        "if the CardBridgeAgent path is expected."
+        "if the PanPal CardBridge.exe path is expected."
     )
 
 

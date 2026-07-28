@@ -170,8 +170,8 @@ class ConfigTests(unittest.TestCase):
                 json.dumps(
                     {
                         "config_schema": CONFIG_SCHEMA,
-                        "bridge_id": "bridge-keychain-test",
-                        "mac_name": "Test Mac",
+                        "bridge_id": "bridge-dpapi-test",
+                        "mac_name": "Test PC",
                         "devices": {
                             "device-1": {
                                 "name": "Cardputer",
@@ -204,7 +204,7 @@ class ConfigTests(unittest.TestCase):
                     {
                         "version": 1,
                         "bridge_id": "bridge-123",
-                        "mac_name": "Test Mac",
+                        "mac_name": "Test PC",
                         "devices": {},
                     }
                 ),
@@ -212,7 +212,7 @@ class ConfigTests(unittest.TestCase):
             )
             config = BridgeConfig(path)
             self.assertEqual(config.bridge_id, "bridge-123")
-            self.assertEqual(config.mac_name, "Test Mac")
+            self.assertEqual(config.mac_name, "Test PC")
             persisted = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(persisted["config_schema"], CONFIG_SCHEMA)
             self.assertNotIn("version", persisted)
@@ -226,6 +226,46 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(voice["restore_mode"], "previous")
             self.assertEqual(voice["trigger_mode"], "hold")
             self.assertEqual(config.bridge_transport(), "both")
+            self.assertEqual(config.quota_settings()["poll_seconds"], 120)
+
+    def test_custom_quota_key_uses_separate_secret_store(self) -> None:
+        class MemoryTokenStore:
+            def __init__(self) -> None:
+                self.tokens: dict[str, str] = {}
+
+            def get(self, key: str) -> str | None:
+                return self.tokens.get(key)
+
+            def put(self, key: str, token: str) -> None:
+                self.tokens[key] = token
+
+            def delete(self, key: str) -> None:
+                self.tokens.pop(key, None)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            quota_store = MemoryTokenStore()
+            config = BridgeConfig(path, quota_token_store=quota_store)
+            settings = config.update_quota_settings(
+                {
+                    "source": "custom",
+                    "url": "https://quota.example.test/v1",
+                    "account_label": "codex-1",
+                    "api_key": "read-only-secret",
+                }
+            )
+
+            self.assertTrue(settings["api_key_present"])
+            self.assertNotIn("api_key", settings)
+            self.assertEqual(
+                config.quota_settings(include_secret=True)["api_key"],
+                "read-only-secret",
+            )
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            self.assertNotIn("api_key", persisted["quota"])
+
+            config.update_quota_settings({"clear_api_key": True})
+            self.assertFalse(config.quota_settings()["api_key_present"])
 
     def test_newer_config_schema_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

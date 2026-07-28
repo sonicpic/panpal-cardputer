@@ -4,8 +4,8 @@
     "minor": 0
   },
   "bridge_agent": {
-    "build": 28,
-    "version": "1.4.5"
+    "build": 29,
+    "version": "1.4.6"
   },
   "capabilities": [
     "control.keys.v1",
@@ -31,15 +31,15 @@
     "version": "0.6.5"
   },
   "legacy_protocol_1": true,
-  "mac_app": {
-    "architectures": [
-      "arm64"
-    ],
-    "build": 28,
-    "minimum_macos": "13.0",
-    "version": "1.4.5"
-  },
   "minimum_firmware": "0.4.0",
-  "release": "1.4.5",
-  "schema": 1
+  "release": "1.4.6",
+  "schema": 1,
+  "windows_app": {
+    "architectures": [
+      "x86_64"
+    ],
+    "build": 29,
+    "minimum_windows": "10",
+    "version": "1.4.6"
+  }
 }

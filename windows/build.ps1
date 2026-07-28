@@ -10,22 +10,33 @@ $root = Split-Path -Parent $PSScriptRoot
 $venvPython = Join-Path $PSScriptRoot ".venv-build\Scripts\python.exe"
 $pio = Join-Path $PSScriptRoot ".venv-build\Scripts\pio.exe"
 
+function Assert-NativeSuccess([string]$Step) {
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Step failed with exit code $LASTEXITCODE"
+    }
+}
+
 if (-not $SkipBootstrap -or -not (Test-Path -LiteralPath $venvPython)) {
     & (Join-Path $PSScriptRoot "bootstrap.ps1")
+    Assert-NativeSuccess "Windows bootstrap"
 }
 
 Push-Location $root
 try {
     $versionData = Get-Content -Raw version.json | ConvertFrom-Json
     & $venvPython tools\generate_versions.py --check
+    Assert-NativeSuccess "Generated version check"
     $env:PYTHONPATH = (Join-Path $root "bridge")
     & $venvPython -m unittest discover -s bridge\tests -v
+    Assert-NativeSuccess "Python tests"
     & $venvPython -m PyInstaller --noconfirm --clean `
         --distpath (Join-Path $root "dist\windows") `
         --workpath (Join-Path $root "build\pyinstaller") `
         bridge\packaging\CardBridgeWindows.spec
+    Assert-NativeSuccess "Windows application package"
     if (-not $SkipFirmware) {
         & $pio run
+        Assert-NativeSuccess "Firmware build"
         $firmwareSource = Join-Path $root ".pio\build\cardputer\firmware.bin"
         $firmwareTarget = Join-Path $root "dist\firmware\panpal-dapan.bin"
         $firmwareVersionedTarget = Join-Path $root (
@@ -49,6 +60,7 @@ try {
             throw "Inno Setup 6 is required to create the installer. Install it with: winget install JRSoftware.InnoSetup"
         }
         & $isccPath "/DAppVersion=$($versionData.release)" windows\installer\CodexDeck.iss
+        Assert-NativeSuccess "Windows installer"
     }
     $releaseFiles = @(
         (Join-Path $root "dist\firmware\panpal-dapan.bin"),

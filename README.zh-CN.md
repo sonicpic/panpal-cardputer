@@ -2,201 +2,111 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **PanPal** 是一个独立开源的语音与编程便携硬件伴侣，把
-> M5Stack Cardputer ADV 变成 macOS 上的无线键盘、麦克风和实时 Agent
-> 状态屏。
+PanPal 把 M5Stack Cardputer ADV 接到 Windows 电脑上。Cardputer
+可以当无线麦克风和小键盘使用，屏幕会显示 Codex 任务状态与 Dapan 桌宠动画。
 
-PanPal 不是 OpenAI 官方产品，也不代表 OpenAI 官方背书。
+当前版本为 PanPal 1.4.6，配套固件为 0.6.5。PanPal 是社区项目，与 OpenAI
+无隶属关系。
 
-PanPal 基于
-[`voltwake/cardputer-codex-deck`](https://github.com/voltwake/cardputer-codex-deck)
-开发，并保留原项目的 MIT 许可证、版权声明和 Git 历史。
+项目源自
+[`voltwake/cardputer-codex-deck`](https://github.com/voltwake/cardputer-codex-deck)，
+仓库保留了原提交历史、MIT 许可证和版权声明。部分程序文件、配置目录、协议名和
+音频设备仍使用 `CardBridge`，已有安装可以沿用原来的配对与系统权限。
 
-当前 1.x macOS 安装包和桥接服务仍保留 `CardBridge` 技术兼容名，以便已有
-配对、权限和音频设置平滑升级，不需要重新配置。
+## 平台支持
 
-## 功能亮点
+| 电脑系统 | 连接方式 | 麦克风输出 | 电脑端程序 |
+| --- | --- | --- | --- |
+| Windows 10/11 | Wi-Fi 或 Bluetooth LE | VB-CABLE | PanPal 托盘程序和 Inno Setup 安装包 |
 
-- **无线键盘：**发送明确的按下和抬起事件，支持 Shift、Control、Command、
-  Option、方向键和可配置功能键。
-- **无线麦克风：**通过经过认证的连接传输 16 kHz PCM 音频，并借助内置
-  Core Audio 驱动显示为原生 macOS 输入设备。
-- **Codex 实时仪表盘：**在 Cardputer 上显示最近的用户任务、Agent 阶段、
-  宠物动画，以及最多八个可切换的 Codex 会话。
-- **额度状态：**在可用时显示真实的 ChatGPT 每周和五小时限额；API Key
-  或其他 Provider 会明确显示无限或未知状态。
-- **原生 macOS 伴侣：**自带 Bridge Agent，常驻菜单栏，支持登录启动和
-  已配对设备自动重连，不依赖系统 Python。
-- **安全且适合自动化：**使用配对、局域网认证、钥匙串密钥、可复现构建、
-  机器可读安装元数据、健康检查和端到端测试，AI 编程 Agent 可以自行执行。
+Cardputer 每次只运行一种连接方式。切换 Wi-Fi 或蓝牙后，设备会保存选择并重启。
 
-## 界面截图
+## 已实现的功能
 
-<table>
-  <tr>
-    <td align="center"><strong>主页</strong></td>
-    <td align="center"><strong>Codex 详情页</strong></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/device-home.png" alt="选中 Codex 卡片的 Cardputer 主页"></td>
-    <td><img src="docs/images/codex-detail.png" alt="工具运行中的 Codex 详情页"></td>
-  </tr>
-</table>
+- 按住 G0/BtnA 或 `Fn+Space` 说话。双击 G0 可以锁定长时间语音，再按一次结束。
+- Cardputer 麦克风通过 Windows 的音频输入设备进入语音软件，并触发
+  电脑端配置好的快捷键。
+- 普通按键、方向键和 Enter 可以转发到电脑。
+- Cardputer 最多显示八个近期 Codex 任务，来源包括 ChatGPT 桌面端、VS Code
+  Codex 扩展和 Codex CLI。设备只接收标题和简短状态，不接收会话正文与工具输出。
+- Dapan 动画、状态色和提示音会对应运行、等待输入、完成、阻塞与断线状态。
+- Wi-Fi 支持普通 WPA/WPA2 网络，也支持 PEAP/MSCHAPv2 企业网络。
+- 局域网禁止设备互访时，可以改用 Bluetooth LE。蓝牙链路使用 GATT 传控制数据，
+  麦克风音频采用 IMA ADPCM。
 
-这两张 4 倍图由当前固件布局和安全示例文案确定性生成。完整的七种视觉状态、
-对应标签与常见文案、空状态、额度样式及重新生成命令见
-[`docs/DEVICE_UI.zh-CN.md`](docs/DEVICE_UI.zh-CN.md)。
+## Windows 快速安装
 
-## 文档
+1. 安装 [VB-CABLE](https://vb-audio.com/Cable/)。
+2. 从 Release 资源中安装 `PanPal-1.4.6-setup.exe`。
+3. 打开 PanPal 设置，将音频写入设备设为 `CABLE Input`，临时麦克风设为
+   `CABLE Output`。
+4. 给 Cardputer ADV 刷入 `panpal-dapan-0.6.5-build26.bin`。
+5. 在设备上选择 Wi-Fi 或 Bluetooth，进入 **Computers > Add computer**，输入
+   电脑显示的六位配对码。
 
-安装与开发文档从 [`docs/README.md`](docs/README.md) 开始。产品要求和历史
-验收记录仍保存在 `docs/` 中，但不作为规范安装入口。
+关闭设置窗口后，PanPal 会留在系统托盘运行。快捷键、蓝牙配对、企业 Wi-Fi、
+日志位置和源码构建说明见 [`docs/WINDOWS.md`](docs/WINDOWS.md)。
 
-仓库名是 `panpal-cardputer`，当前硬件目标是 M5Stack Cardputer ADV。
+## 设备按键
 
-## 安装发布版
+| 操作 | 功能 |
+| --- | --- |
+| 按住 G0/BtnA | 按住期间说话 |
+| 双击 G0 | 锁定麦克风；再按一次结束 |
+| `Fn+Space` | 键盘上的按住说话 |
+| `Fn+Enter` | 开关语音结束 1400 ms 后自动发送 Enter |
+| `Fn+Tab` | 切换本地按键和电脑键盘转发 |
+| 任务页 Left / Right | 浏览最近八个 Codex 任务 |
+| 任务页 Enter | 清除本机的完成或阻塞提醒 |
 
-普通用户应从 GitHub Releases 下载已签名/公证的 PanPal App 和匹配的
-固件。校验 `SHA256SUMS`，把 `CardBridge.app` 放入 `/Applications`，启动
-App 并按提示完成一次性的 macOS 权限设置。完整流程见
-[`docs/INSTALL.md`](docs/INSTALL.md)。
+电脑确认麦克风切换和语音快捷键均已启动后，麦克风图标才会变绿。键盘图标显示
+当前是否选中了电脑转发，以及连接是否可用。
 
-从源码目录运行 `./scripts/install-release.sh`，脚本会自动下载、校验和挂载
-DMG，然后安装 App。
+## 数据路径
 
-当前预构建目标是 Apple Silicon + macOS 13 或更高版本。PanPal 需要
-Cardputer ADV 连接 2.4 GHz Wi-Fi。安装 Mac App 和刷写 Cardputer 固件是
-两个独立操作。
-
-## 本分支的 Windows 构建
-
-本分支额外提供 Windows Bridge、Inno Setup 安装程序和 Spear Rib 固件资源。
-Windows 使用 `SendInput` 转发键盘，使用 DPAPI 保存配对密钥，并通过用户另行
-安装的 VB-CABLE 虚拟声卡传送麦克风。可复现构建、安装、配对和企业 Wi-Fi 流程见
-[`docs/WINDOWS.md`](docs/WINDOWS.md)。
-
-## 使用 macOS 菜单栏 App
-
-`CardBridge.app` 是当前 1.x 的内部 bundle 名称，对外显示为 PanPal。
-它自带签名的 Bridge Agent，启动后立即开始桥接，只显示在菜单栏，能够自动
-重新连接已配对的 M5 设备，不需要 Python、虚拟环境或终端。
-
-在 Apple Silicon 上从源码构建：
-
-```sh
-./scripts/doctor.sh
-./scripts/bootstrap.sh
-./scripts/test.sh
-./scripts/build.sh
-./scripts/install.sh
-./scripts/healthcheck.sh
+```text
+Cardputer 麦克风和按键
+        │
+        ├─ Wi-Fi：TCP 控制 + UDP PCM16 音频
+        └─ BLE：GATT 控制 + IMA ADPCM 音频
+        │
+        ▼
+Windows 上的 PanPal
+        ├─ 写入虚拟麦克风
+        ├─ 注入按键与语音快捷键
+        └─ 发送经过裁剪的 Codex 任务状态
 ```
 
-首次启动时，PanPal（`CardBridge.app`）会用一次 macOS 管理员授权安装
-内置的 `CardBridge Microphone` HAL 驱动，然后请求 **系统设置 → 隐私与安全性
-→ 辅助功能** 权限，以便转发键盘输入。麦克风会提供一个仅输入的兼容 Core
-Audio 设备和一个供 Agent 使用的仅输出音频流；如果已安装 BlackHole 2ch，
-它仍可作为备用方案。已有的 `~/.cardbridge` 身份和配对数据会原地迁移，
-无需重新配对；配对密钥会保存到 macOS 钥匙串。
+首次配对会生成随机 token，后续连接用它完成身份验证。Wi-Fi 两端重启后会重新
+连接保存的电脑；蓝牙完成 bonding 后，Windows 程序会扫描广播并恢复连接。
 
-菜单栏会显示 M5、协议、本地网络、辅助功能、音频和 Codex 健康状态。设置
-页面可以管理登录启动、音频增益、已配对设备、Codex Hooks、自动更新和脱敏
-诊断信息。
+## 从源码构建
 
-自动化 Agent 可以运行上面的命令，但 macOS 请求管理员、辅助功能、本地网络、
-钥匙串或 Codex Hook 信任时，必须暂停并等待用户明确批准。详见
-[`AGENTS.md`](AGENTS.md) 和机器可读的 [`project-install.json`](project-install.json)。
+Windows PowerShell：
 
-## 构建固件
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\build.ps1
+```
+
+只编译固件：
 
 ```sh
-cd /path/to/panpal-cardputer
 pio run
 ```
 
-如果 `pio` 不在 `PATH` 中，请先安装 PlatformIO Core。连接硬件后，Codex 可以
-运行 `pio run -t upload` 并使用 USB 串口完成设备验证。尽量让 PlatformIO
-自动发现 `/dev/cu.usbmodem*`，因为设备重置后串口名称可能变化。
+`version.json` 保存程序、Bridge、固件和协议版本。修改后运行
+`python tools/generate_versions.py` 更新生成文件。
 
-## 版本与协议
+## 隐私与许可证
 
-[`version.json`](version.json) 是 Mac App、Python Agent、固件、本地 Agent API、
-设备协议、配置 schema 和能力列表的单一版本源。修改后运行以下命令重新生成
-各语言常量：
+PanPal 会向 Cardputer 发送任务名称和简短状态。提示词、会话正文、推理内容、
+原始命令、工具参数、工具输出、Wi-Fi 密码和配对 token 不进入设备状态通道，
+正常日志也不会记录这些内容。
 
-```sh
-python3 tools/generate_versions.py
-```
+项目使用 MIT License。企业 Wi-Fi supplicant 和视觉素材有各自的许可证与声明。
+分发前请阅读
+[`NOTICE.md`](NOTICE.md)、[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+和 [`assets/ASSET_SOURCES.md`](assets/ASSET_SOURCES.md)。
 
-CI 和本地验证应使用 `python3 tools/generate_versions.py --check`，以拒绝过期的
-Python、C++ 或 Swift 常量。协议主版本不匹配会返回明确的 `upgrade_required`；
-缺失的协议字段在迁移期间仍按旧协议 v1 兼容处理。
-
-运行完整的本地发布门禁：
-
-```sh
-CODE_SIGN_IDENTITY="Apple Development: …" macos/scripts/release.sh
-```
-
-它会测试 Swift/Python、构建固件、打包并验证 App/Agent、签名 Sparkle 归档，
-并在 `macos/dist/release-<version>/` 下写入校验和与发布清单。公开分发还需要
-Developer ID Application 证书和 Apple 公证凭据，详见
-[`release/README.md`](release/README.md)。
-
-## 构建宠物动画资源
-
-固件自带一个确定性的 Codex 主题开发吉祥物。使用随附的离线打包器重建：
-
-```sh
-python3 tools/pack_pet.py --demo --output-dir src
-```
-
-如需使用官方 `hatch-pet` 流程创建的桌面 Codex v2 宠物：
-
-```sh
-python3 tools/pack_pet.py \
-  --pet-dir "$HOME/.codex/pets/my-pet" \
-  --output-dir src
-```
-
-适配器支持 1536×1872 的 8×9 App 图集和 1536×2288 的 8×11 v2 图集，只选择
-Idle、Failed、Waiting、Running 和 Review 状态，将帧缩放到 72×72，共享 16 色
-调色板量化，并写入 `src/pet_assets.*` 中的行安全 RLE。Cardputer 直接从闪存
-解码，在 Codex 详情页缩放到 100×100，每帧不分配图像缓冲区。
-
-## 构建中文 UI 字体
-
-生成的 `assets/fonts/cardbridge-ui-13.bff` 内置了由 Source Han Sans CN Medium
-2.005R 派生的原生 13px、4-bit 抗锯齿 GB2312 字体。原生尺寸保持小屏字宽均匀，
-并不是将 15px 字体做分数缩放。运行以下命令重建：
-
-```sh
-python3 tools/build_ui_font.py
-```
-
-生成器会验证固定的源字体 checksum，并通过 `npx` 调用 `lv_font_conv` 1.5.3。
-Source Han Sans 使用 SIL Open Font License 1.1 发布，所需声明在
-`assets/fonts/LICENSE-SourceHanSans.txt`。
-
-## 设备控制
-
-- G0/BtnA 用于按住说话：按住、松开完成一次语音，双击可锁定长时间说话，再单击一次结束。`Fn+Space` 是键盘上的按住说话入口。
-- `Fn+Enter` 控制语音结束 1 秒后是否自动发送回车；绿色回车图标表示开启。
-- `Fn+Tab` 切换键盘转发。青色实心键盘表示已进入 Remote 模式且 Bridge 已连接；红色斜线表示选择了 Remote 模式，但当前没有可用的电脑连接。
-- 独立的麦克风图标只会在 Bridge 确认麦克风切换和语音快捷键均已成功后变绿。
-- 键盘转发开启时，`Fn+;`、`Fn+,`、`Fn+.`、`Fn+/` 发送上、左、下、右；`Fn+\`` 发送 Escape。Shift 会作为 macOS 修饰键附加到目标键，Ctrl/Cmd/Option 保持正常的按下/抬起事件。
-- 键盘转发关闭时，可用印刷的方向键（`; . , /`）或 `I/J/K/L` 导航，`Enter` 确认，反引号/ESC 返回。
-- 在 Codex 页面中，左右键切换当前显示的会话，`Enter` 将该会话的仅限 Cardputer 的完成/阻塞提醒标记为已读。收到新的用户提示后，宠物会自动回到该会话。
-- 在 Wi-Fi 和已配对 Mac 列表中，`Backspace` 忘记或删除选中的保存项，不需要 Fn 组合键。
-- 密码输入保留大小写和 Shift 符号：输入大写字母或符号时按住 `Shift`；`Backspace` 编辑，反引号/ESC 取消。
-- Wi-Fi 设置总是从扫描列表开始。WPA2-Enterprise 网络会要求输入用户名和密码，
-  并使用 EAP-PEAP/MSCHAPv2；普通加密网络只需输入密码。
-
-## 项目政策
-
-主项目使用 MIT License。`driver/` 中的 BlackHole 派生音频驱动使用 GPLv3，
-并保留自己的许可证和声明。重新分发前请阅读 [`NOTICE.md`](NOTICE.md)、
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和
-[`assets/ASSET_SOURCES.md`](assets/ASSET_SOURCES.md)。贡献、安全报告和支持
-请求说明见 [`CONTRIBUTING.md`](CONTRIBUTING.md)、[`SECURITY.md`](SECURITY.md)
-和 [`SUPPORT.md`](SUPPORT.md)。
+文档入口在 [`docs/README.md`](docs/README.md)。安全报告与贡献说明见
+[`SECURITY.md`](SECURITY.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

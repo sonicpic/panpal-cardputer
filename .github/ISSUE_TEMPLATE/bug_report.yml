@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible Codex Deck problem
+description: Report a reproducible PanPal problem
 title: "[Bug]: "
 labels: [bug]
 body:
@@ -9,15 +9,15 @@ body:
   - type: input
     id: version
     attributes:
-      label: Codex Deck version and build
-      placeholder: 1.1.0 (9)
+      label: PanPal and firmware versions
+      placeholder: PanPal 1.4.6 build 29; firmware 0.6.5 build 26
     validations:
       required: true
   - type: input
     id: environment
     attributes:
-      label: macOS version and architecture
-      placeholder: macOS 26.x, arm64
+      label: Windows version and architecture
+      placeholder: Windows 11 24H2, x64
     validations:
       required: true
   - type: textarea
@@ -29,8 +29,8 @@ body:
   - type: textarea
     id: diagnostics
     attributes:
-      label: Redacted doctor/health-check output
-      render: shell
+      label: Redacted diagnostics and logs
+      render: powershell
   - type: checkboxes
     id: redaction
     attributes:

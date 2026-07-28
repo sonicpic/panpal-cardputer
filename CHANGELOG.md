@@ -1,5 +1,25 @@
 # PanPal changelog
 
+## Unreleased
+
+## 1.4.6 / firmware 0.6.5
+
+- Add a custom read-only quota URL with Bearer authentication, multi-account
+  selection, cached failure handling, and DPAPI-protected access keys.
+- Set the automatic Enter delay after voice input to 1400 ms.
+- Keep the Windows action bar visible at every display scale and add a
+  compact tabbed settings layout.
+- Prefer Microsoft YaHei UI for consistent Simplified Chinese glyphs on
+  high-DPI Windows displays.
+- Label local task monitoring and optional Hooks as separate status sources.
+- Replace internal setting values with readable connection, microphone, and
+  shortcut choices.
+- Remove NumPy from the audio path and narrow the packaged modules to reduce
+  installed size and memory use.
+- Remove unused platform code, retired packaging paths, and historical planning
+  documents.
+- Make the repository, CI, build scripts, and documentation Windows-only.
+
 ## 1.4.5 / firmware 0.6.5
 
 - Restore authenticated Wi-Fi reconnection after firmware restarts by enlarging
@@ -38,20 +58,4 @@
 - Reworked the home pet card with a taller clipped stage and breathing status indicator.
 
 The release version is defined in [`version.json`](version.json). Generated
-version constants must be refreshed with `python3 tools/generate_versions.py`.
-
-## 1.1.0
-
-- Added the bundled `CardBridge Microphone` HAL driver.
-- Added the separate output-only microphone feed and retained BlackHole as a
-  compatibility fallback.
-- Updated Cardputer UI and Codex session monitoring behavior.
-
-## 1.0.0
-
-- Added the native macOS menu bar app and supervised Bridge Agent.
-- Added protocol/capability negotiation, Keychain migration, diagnostics, and
-  Sparkle update foundations.
-
-Older development notes are preserved in `release/RELEASE_NOTES.md` and
-`docs/archive/` where applicable.
+version constants must be refreshed with `python tools/generate_versions.py`.

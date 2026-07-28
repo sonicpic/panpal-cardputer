@@ -19,10 +19,11 @@ body:
     attributes:
       label: Area
       options:
-        - macOS App
-        - Bridge Agent
+        - Windows app
+        - Wi-Fi or Bluetooth connection
+        - Voice and audio
+        - Codex status
         - Cardputer firmware
-        - Audio driver
         - Protocol
         - Documentation
     validations:

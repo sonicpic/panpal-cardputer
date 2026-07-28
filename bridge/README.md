@@ -1,140 +1,67 @@
-# CardBridge Agent development and diagnostics
+# CardBridge development
 
-The bridge advertises `_cardbridge._tcp` over mDNS, pairs Cardputers with a six-digit code, injects authenticated TCP key events with Quartz, writes authenticated UDP microphone audio into **CardBridge Microphone Feed** (with **BlackHole 2ch** as a compatibility fallback), and publishes a privacy-trimmed view of local Codex sessions. Normal users run the bundled Agent through `CardBridge.app`; the Python commands below are for development and diagnostics.
+`CardBridge` is the internal Windows service used by PanPal. It receives
+authenticated Cardputer control and audio traffic over Wi-Fi or Bluetooth LE,
+writes microphone audio to VB-CABLE, injects keyboard shortcuts with
+`SendInput`, and sends a privacy-trimmed Codex task snapshot back to the
+device.
 
-## 1. Install CardBridge Microphone and configure Typeless
+## Setup
 
-1. Launch `CardBridge.app` and approve its one-time `CardBridge Microphone` driver installation. The same action is available later in the menu and Settings → Audio.
-2. Open **Audio MIDI Setup** and confirm that input-only `CardBridge Microphone` and output-only `CardBridge Microphone Feed` exist at 48,000 Hz.
-3. In Typeless, select `CardBridge Microphone` as the microphone and configure its hold-to-record shortcut as **F13** (the device default). The device setting can instead use F14–F16.
-4. For an independent check, open QuickTime Player → New Audio Recording and select `CardBridge Microphone` as the microphone.
+From the repository root:
 
-The bridge writes to the Feed device; Typeless and QuickTime read the paired input device. The driver reports the input as USB for compatibility with applications that filter `Virtual` transports, but it remains a software HAL plug-in rather than real UAC hardware. Do not create an Aggregate Device for this path. If the bundled driver is absent, the Agent automatically falls back to BlackHole 2ch.
-
-## 2. Create the Python 3.10 environment
-
-```sh
-cd /path/to/panpal-cardputer/bridge
-/usr/bin/python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\bootstrap.ps1
 ```
 
-If `/usr/bin/python3` is not Python 3.10 or newer, invoke the installed Python 3.10 executable explicitly. No Homebrew package is required.
+The build environment is stored in `windows/.venv-build`. It does not change
+packages in the system Python installation.
 
-## 3. First run and pairing
+## Run from source
 
-```sh
-cd /path/to/panpal-cardputer/bridge
-source .venv/bin/activate
-cardbridge
+```powershell
+$env:PYTHONPATH = "$PWD\bridge"
+.\windows\.venv-build\Scripts\python.exe -m cardbridge --dry-run --no-audio -v
 ```
 
-At first launch, macOS asks for Accessibility access. If necessary, open **System Settings → Privacy & Security → Accessibility** and enable the Python executable used by this virtual environment, then restart CardBridge. Without this permission audio still works, but CGEvent keyboard injection is blocked.
+Remove `--dry-run` to enable key injection and remove `--no-audio` to write to
+the configured `CABLE Input` playback endpoint. Changing the Windows default
+microphone requires an explicit voice action from the Cardputer.
 
-Select **Settings → Computers → Add new computer** on the Cardputer. The bridge prints a six-digit code and also posts a macOS notification. Enter that code on the device. In the packaged App, the generated 32-byte random token is stored in the macOS Keychain and `~/.cardbridge/config.json` retains only non-secret identity/device metadata. Explicit development configs keep their token in the mode-`0600` test file so isolated simulator runs remain portable.
+## Codex status sources
 
-Useful diagnostic run (no key injection and no sound-device requirement):
+Local session monitoring is always enabled unless the program starts with
+`--no-codex`. It launches a compatible local `codex.exe app-server`, reads the
+shared task list every three seconds, and inspects only lifecycle markers in the
+associated rollout files.
 
-```sh
-cardbridge --dry-run --no-audio -v
+Hooks are optional. They add immediate tool, permission, and user-input events
+through UDP `127.0.0.1:7790`. The settings button controls only Hooks; task
+history and basic running/completed state continue without them.
+
+```powershell
+.\CardBridge.exe --install-hooks
+.\CardBridge.exe --uninstall-hooks
 ```
 
-## 4. Legacy LaunchAgent (development only)
+## Tests and build
 
-`CardBridge.app` uses `SMAppService` and automatically migrates/removes the old item. Only use this legacy installer when deliberately testing the source Agent without the App:
-
-```sh
-cd /path/to/panpal-cardputer/bridge
-source .venv/bin/activate
-python install_launch_agent.py install
+```powershell
+$env:PYTHONPATH = "$PWD\bridge"
+.\windows\.venv-build\Scripts\python.exe -m unittest discover -s bridge\tests -v
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\build.ps1
 ```
 
-Logs are written to `~/.cardbridge/bridge.log` and `~/.cardbridge/bridge-error.log`. Remove the service with:
+The complete build creates the tray program, installer, firmware binaries, and
+`dist/SHA256SUMS.txt`.
 
-```sh
-python install_launch_agent.py uninstall
-```
+## Protocol summary
 
-## 5. Enable Codex live status
+- TCP `7788`: authenticated JSON control records.
+- UDP `7789`: authenticated PCM16 mono audio in Wi-Fi mode.
+- BLE GATT: control records and IMA ADPCM audio in Bluetooth mode.
+- UDP `127.0.0.1:7790`: optional local Codex Hook events.
 
-Session names/projects and public streamed agent/tool events come from a separate read-only official Codex App Server in every local authentication mode. Official lifecycle Hooks remain the cross-process fallback and report over UDP `127.0.0.1:7790`. CardBridge derives only a short safe action such as `Editing ui.cpp` or `Building firmware`; it never forwards raw commands, tool arguments, prompt text, transcripts, reasoning events, command output, or `auth.json`. ChatGPT OAuth exposes real weekly/5-hour windows; API/custom-provider mode is explicitly marked unlimited for those ChatGPT windows, while lookup failure remains unknown rather than being mislabeled unlimited.
-
-The packaged App manages Hooks from Settings and points them at the bundled stable Agent path. For source-only development, preview the merged user-level hook configuration first:
-
-```sh
-python install_codex_hooks.py show
-```
-
-Install it when the paths look correct:
-
-```sh
-python install_codex_hooks.py install
-```
-
-Restart or reload Codex and review its hook-trust prompt. Do not bypass that trust check. To remove only CardBridge's hook commands while preserving unrelated hooks:
-
-```sh
-python install_codex_hooks.py uninstall
-```
-
-Use `cardbridge --no-codex` to disable both the App Server monitor and local hook receiver, or `--hook-port` to choose another loopback port (set the same `CARDBRIDGE_HOOK_PORT` for the reporter).
-
-## 6. Local menu bar status/control API
-
-By default CardBridge creates an owner-only Unix socket at:
-
-```text
-~/Library/Application Support/CardBridge/run/agent.sock
-```
-
-The socket directory uses mode `0700`, the socket uses `0600`, and the server also verifies the connecting process UID. A client must first send one newline-delimited JSON hello:
-
-```json
-{"t":"hello","api":{"major":1,"minor":0}}
-```
-
-It may then request `snapshot_req`, send `subscribe` for live snapshots, or use a `command` named `set_gain`, `unpair`, `install_hooks`, `uninstall_hooks`, `restart`, or `shutdown`. Snapshots expose service, device, audio, Accessibility, and Codex health but never expose pairing tokens. Use `--no-control-socket` to disable this endpoint or `--control-socket PATH` to override it.
-
-## 7. End-to-end simulator
-
-Terminal 1:
-
-```sh
-cd /path/to/panpal-cardputer/bridge
-source .venv/bin/activate
-cardbridge --dry-run --no-audio -v
-```
-
-Terminal 2:
-
-```sh
-cd /path/to/panpal-cardputer/bridge
-source .venv/bin/activate
-python fake_device.py
-```
-
-Enter the pairing code printed in terminal 1. The simulator authenticates, sends English/shift/punctuation key down+up events, holds/releases F13, sends the reserved phase-two request, and streams a real-time 440 Hz sine wave as authenticated 20 ms UDP frames. Its local token cache is `.fake_device.json` and is git-ignored.
-
-Run all dependency-free tests with:
-
-```sh
-cd /path/to/panpal-cardputer/bridge
-PYTHONPATH=. python -m unittest discover -s tests -v
-```
-
-From the repository root, also verify that every generated version constant matches `version.json`:
-
-```sh
-python3 tools/generate_versions.py --check
-```
-
-## Protocol and recovery behavior
-
-- TCP `7788`: newline-delimited UTF-8 JSON capped at 4096 bytes, five-second ping/pong, disconnect after three misses. Agent snapshots budget titles to 32 characters, project names to 20 characters, and public activity to 72 UTF-8 bytes so all eight worst-case CJK sessions still fit. The hello negotiates device protocol major/minor and the capability intersection. Missing fields are accepted as legacy v1; an unsupported major receives `upgrade_required`. Every post-handshake message carries the session token; unknown authenticated message types are ignored for forward compatibility.
-- UDP `7789`: network-order `seq(u32) + timestamp_ms(u32) + HMAC8`, followed by exactly 640 bytes of little-endian PCM16 mono audio.
-- Local Unix socket: Agent API v1 newline-delimited JSON for status subscriptions and menu bar commands, limited to the logged-in user.
-- Playback starts at a configurable 100 ms jitter depth. Missing sequences become silence; packets are not retransmitted.
-- Firmware stops microphone capture and UDP sending whenever muted or disconnected. Reconnect uses exponential backoff capped at 30 seconds.
-- A Cardputer maintains exactly one selected Mac control connection, so key and microphone data are never broadcast.
+Pairing tokens use Windows DPAPI. Logs and device status records must not
+contain tokens, Wi-Fi passwords, prompts, conversation text, reasoning, raw
+commands, tool arguments, tool output, or recordings.

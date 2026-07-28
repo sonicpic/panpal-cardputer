@@ -8,7 +8,6 @@ import os
 import platform
 import secrets
 import socket
-import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -16,12 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from .agents import AgentStore
-from .audio import BlackHoleAudioOutput, NullAudioOutput, default_audio_device
+from .audio import NullAudioOutput, SoundDeviceAudioOutput, default_audio_device
 from .ble_transport import BleBridgeTransport
 from .codex_monitor import CodexMonitor, start_hook_receiver
 from .codex_hooks import hook_command, hooks_installed, update_hooks
 from .config import BridgeConfig
-from .control_server import AgentControlServer
+from .custom_quota import CustomQuotaMonitor, fetch_custom_quota, validate_quota_url
 from .keyboard import KeyInjector
 from .protocol import (
     MAX_JSON_LINE,
@@ -90,7 +89,6 @@ class BridgeApp:
         pair_code_factory: Callable[[], str] | None = None,
         enable_agents: bool = True,
         hook_port: int = 7790,
-        control_socket_path: Path | None = None,
         config: BridgeConfig | None = None,
     ) -> None:
         self.host = host
@@ -115,7 +113,7 @@ class BridgeApp:
         self.audio = (
             NullAudioOutput(jitter_ms)
             if no_audio
-            else BlackHoleAudioOutput(
+            else SoundDeviceAudioOutput(
                 audio_device
                 or str(self.config.voice_settings()["feed_output_device"])
                 or default_audio_device(),
@@ -128,7 +126,6 @@ class BridgeApp:
         self.pair_code_factory = pair_code_factory or (lambda: f"{secrets.randbelow(1_000_000):06d}")
         self.enable_agents = enable_agents
         self.hook_port = hook_port
-        self.control_socket_path = control_socket_path
         self.audio_disabled = no_audio
         self.started_at_ms = 0
         self.service_state = "stopped"
@@ -146,7 +143,9 @@ class BridgeApp:
         # wobble cannot show two conflicting dialogs to the user.
         self._pending_pair_codes: dict[str, tuple[str, float]] = {}
         self.agents = AgentStore()
-        self.codex_monitor = CodexMonitor(self.agents)
+        quota_source = str(self.config.quota_settings()["source"])
+        self.codex_monitor = CodexMonitor(self.agents, quota_source=quota_source)
+        self.custom_quota_monitor = CustomQuotaMonitor(self.agents, self.config)
         self.hook_transport: asyncio.DatagramTransport | None = None
         self.codex_hooks_installed = hooks_installed() if enable_agents else False
         self._agent_clients: dict[asyncio.StreamWriter, str] = {}
@@ -163,15 +162,6 @@ class BridgeApp:
         self.ble_transport = BleBridgeTransport(self)
         self.zeroconf: Any = None
         self.service_info: Any = None
-        self.control_server = (
-            AgentControlServer(
-                control_socket_path,
-                self.status_snapshot,
-                self.handle_control_command,
-            )
-            if control_socket_path is not None
-            else None
-        )
 
     async def start(self) -> None:
         self.service_state = "starting"
@@ -214,8 +204,7 @@ class BridgeApp:
                 LOG.warning("Codex Hook receiver unavailable: %s", exc)
                 self.last_error = f"Codex Hook receiver unavailable: {exc}"
             await self.codex_monitor.start()
-        if self.control_server is not None:
-            await self.control_server.start()
+            await self.custom_quota_monitor.start()
         self.status_task = asyncio.create_task(self._publish_status_periodically())
         self.service_state = "ready"
         self._status_changed()
@@ -256,6 +245,7 @@ class BridgeApp:
                 pass
             self.status_task = None
         self.agents.set_on_change(None)
+        await self.custom_quota_monitor.stop()
         await self.codex_monitor.stop()
         if self.hook_transport is not None:
             self.hook_transport.close()
@@ -279,8 +269,6 @@ class BridgeApp:
         self.audio.stop()
         self.service_state = "stopped"
         await self._publish_status()
-        if self.control_server is not None:
-            await self.control_server.stop()
 
     def status_snapshot(self) -> dict[str, object]:
         accessibility = self.keyboard.check_accessibility(prompt=False)
@@ -354,6 +342,7 @@ class BridgeApp:
                 "sessions": len(self.agents.sessions),
                 "quota_mode": self.agents.quota_mode,
                 "quota_available": self.agents.quota_available,
+                "quota": self.custom_quota_monitor.snapshot(),
             },
             "devices": [
                 device.snapshot()
@@ -403,6 +392,41 @@ class BridgeApp:
                 self._start_audio_output()
             self._status_changed()
             return {"ok": True, "voice": settings}
+        if name == "set_quota_settings":
+            values = request.get("value")
+            if not isinstance(values, dict):
+                return {"ok": False, "error": "invalid_quota_settings"}
+            try:
+                current = self.config.quota_settings()
+                candidate = dict(current)
+                candidate.update(values)
+                if candidate.get("source") == "custom":
+                    validate_quota_url(candidate.get("url"))
+                settings = self.config.update_quota_settings(values)
+            except (OSError, RuntimeError, ValueError) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {
+                "ok": True,
+                "quota": settings,
+                "restart_required": True,
+            }
+        if name == "test_quota_settings":
+            values = request.get("value")
+            if not isinstance(values, dict):
+                return {"ok": False, "error": "invalid_quota_settings"}
+            settings = self.config.quota_settings(include_secret=True)
+            settings.update(values)
+            if not settings.get("api_key"):
+                settings["api_key"] = self.config.quota_settings(
+                    include_secret=True
+                ).get("api_key", "")
+            try:
+                _limits, metadata = await asyncio.to_thread(
+                    fetch_custom_quota, settings
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, **metadata}
         if name == "list_audio_devices":
             try:
                 import sounddevice
@@ -471,8 +495,7 @@ class BridgeApp:
             pass
 
     async def _publish_status(self) -> None:
-        if self.control_server is not None:
-            await self.control_server.publish()
+        return None
 
     async def _publish_status_periodically(self) -> None:
         ticks = 0
@@ -971,19 +994,7 @@ class BridgeApp:
         print("Enter this code on the Cardputer ADV.", flush=True)
         print("=" * 50 + "\n", flush=True)
         LOG.info("pairing code for %s: %s", device_id, code)
-        if platform.system() == "Darwin" and not self.dry_run:
-            script = f'display notification "Code: {code}" with title "CardBridge pairing"'
-            try:
-                subprocess.run(
-                    ["osascript", "-e", script],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=3,
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                pass
-        elif platform.system() == "Windows" and not self.dry_run:
+        if platform.system() == "Windows" and not self.dry_run:
             # A background Windows build has no terminal to show the short
             # pairing secret. A normal user-session dialog is enough and does
             # not require a service, toast package, or elevated permission.
@@ -1023,24 +1034,6 @@ class BridgeApp:
 
 
 def _local_ipv4() -> str:
-    # Ask the primary LAN interfaces first. The default-route probe below can
-    # pick a VPN utun address (e.g. 198.18.0.0/15 fake-IP) that LAN devices
-    # cannot reach, which would advertise an unusable mDNS address.
-    if platform.system() == "Darwin":
-        for interface in ("en0", "en1"):
-            try:
-                result = subprocess.run(
-                    ["ipconfig", "getifaddr", interface],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                    check=False,
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                continue
-            address = result.stdout.strip()
-            if address:
-                return address
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         probe.connect(("8.8.8.8", 80))

@@ -1,43 +1,41 @@
 {
   "name": "PanPal",
   "internal_compatibility_name": "CardBridge",
-  "description": "Personal voice and coding companion for M5Stack Cardputer ADV",
+  "description": "Windows voice, keyboard, pet, and Codex task companion for M5Stack Cardputer ADV",
   "repository": "https://github.com/sonicpic/panpal-cardputer",
-  "platform": "macOS",
-  "minimum_os": "13.0",
-  "architectures": ["arm64"],
+  "platform": "Windows",
+  "minimum_os": "Windows 10",
+  "architectures": ["x86_64"],
   "hardware": {
     "name": "M5Stack Cardputer ADV",
     "chip": "ESP32-S3",
-    "wifi": "2.4GHz"
+    "wifi": "2.4GHz",
+    "bluetooth": "Bluetooth LE"
   },
   "prebuilt_install": {
     "source": "GitHub Releases",
-    "command": "./scripts/install-release.sh --version <version>",
-    "artifacts": ["CardBridge-<version>.dmg", "cardputer-adv-firmware-<version>.bin", "SHA256SUMS"]
+    "artifacts": [
+      "PanPal-<version>-setup.exe",
+      "panpal-dapan-<firmware>-build<build>.bin",
+      "SHA256SUMS.txt"
+    ]
   },
-  "source_install": {
-    "doctor": "./scripts/doctor.sh --json",
-    "bootstrap": "./scripts/bootstrap.sh",
-    "test": "./scripts/test.sh",
-    "build": "./scripts/build.sh",
-    "install": "./scripts/install.sh",
-    "healthcheck": "./scripts/healthcheck.sh --json"
+  "source_build": {
+    "bootstrap": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\windows\\bootstrap.ps1",
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\windows\\build.ps1"
+  },
+  "external_audio": {
+    "package": "VB-CABLE",
+    "writer": "CABLE Input",
+    "microphone": "CABLE Output"
   },
   "permissions": [
-    "administrator_for_audio_driver",
-    "accessibility_for_keyboard_injection",
-    "local_network_for_cardputer_discovery",
-    "keychain_for_pairing_tokens",
-    "codex_hook_trust_if_hooks_are_enabled"
+    "windows_firewall_for_wifi",
+    "bluetooth_pairing",
+    "default_microphone_change",
+    "codex_hook_trust_if_enabled"
   ],
-  "firmware": {
-    "build": "pio run",
-    "flash": "pio run -t upload",
-    "port": "/dev/cu.usbmodem*"
-  },
-  "health": {
-    "socket": "~/Library/Application Support/CardBridge/run/agent.sock",
+  "network": {
     "tcp_port": 7788,
     "udp_port": 7789,
     "hook_port": 7790

@@ -1,12 +1,12 @@
 {
-  "release": "1.4.5",
-  "mac_app": {
-    "version": "1.4.5",
-    "build": 28
+  "release": "1.4.6",
+  "windows_app": {
+    "version": "1.4.6",
+    "build": 29
   },
   "bridge_agent": {
-    "version": "1.4.5",
-    "build": 28
+    "version": "1.4.6",
+    "build": 29
   },
   "agent_api": {
     "major": 1,
@@ -20,15 +20,10 @@
     "major": 2,
     "minor": 4
   },
-  "config_schema": 3,
+  "config_schema": 4,
   "compatibility": {
     "min_firmware": "0.4.0",
     "legacy_protocol_1": true
-  },
-  "updates": {
-    "sparkle_version": "2.9.4",
-    "feed_url": "https://raw.githubusercontent.com/sonicpic/panpal-cardputer/main/release/appcast.xml",
-    "public_ed_key": "d3fvdw4bGTCUoKuACWMwrQ2ZAF6VgyvaPBdw+U5iwkQ="
   },
   "capabilities": [
     "control.keys.v1",

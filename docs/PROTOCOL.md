@@ -25,13 +25,13 @@ protocol v1 where the implementation documents that behavior.
   only starts local capture after a successful `down` acknowledgement. The
   Windows Bridge owns shortcut mode and microphone restoration. An `up` may
   include `"send_enter":true`; this firmware-owned policy schedules Enter one
-  second after shortcut release. Missing fields default to false for old
+  1400 ms after shortcut release. Missing fields default to false for old
   firmware compatibility.
 - Forwarded keyboard edges also carry a `request_id` and receive `key_ack`.
   Firmware serializes and retries those edges so a short BLE notification loss
   cannot silently drop a press or leave a key held on Windows.
 - Authenticated `pong` responses may include cumulative UDP receive progress
-  and Core Audio output readiness. Firmware that understands these optional
+  and Windows audio output readiness. Firmware that understands these optional
   fields uses them to recover a stalled microphone path; older firmware safely
   ignores them.
 - Unknown authenticated message types are ignored for forward compatibility.

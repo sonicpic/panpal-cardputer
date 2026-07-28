@@ -3,38 +3,46 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_submodules
 
 
 bridge_dir = Path(SPECPATH).parent
-sounddevice_data, sounddevice_binaries, sounddevice_hidden = collect_all("sounddevice")
-bleak_data, bleak_binaries, bleak_hidden = collect_all("bleak")
-pycaw_data, pycaw_binaries, pycaw_hidden = collect_all("pycaw")
-tray_data, tray_binaries, tray_hidden = collect_all("infi.systray")
-
 analysis = Analysis(
     [str(bridge_dir / "packaging" / "agent_entry.py")],
     pathex=[str(bridge_dir)],
-    binaries=sounddevice_binaries + bleak_binaries + pycaw_binaries + tray_binaries,
-    datas=(
-        sounddevice_data
-        + bleak_data
-        + pycaw_data
-        + tray_data
-        + [(str(bridge_dir.parent / "windows" / "assets"), "windows/assets")]
-    ),
+    binaries=[],
+    datas=[(str(bridge_dir.parent / "windows" / "assets"), "windows/assets")],
     hiddenimports=(
-        sounddevice_hidden
-        + bleak_hidden
-        + pycaw_hidden
-        + tray_hidden
-        + collect_submodules("zeroconf")
+        collect_submodules("zeroconf")
         + collect_submodules("winrt")
-        + ["tkinter", "tkinter.ttk", "tkinter.messagebox"]
+        + [
+            "bleak.backends.winrt.client",
+            "bleak.backends.winrt.scanner",
+            "infi.systray",
+            "pycaw.constants",
+            "pycaw.utils",
+            "tkinter",
+            "tkinter.ttk",
+            "tkinter.messagebox",
+        ]
     ),
-    excludes=["comtypes.test"],
+    excludes=[
+        "bleak.backends.bluezdbus",
+        "bleak.backends.corebluetooth",
+        "bleak.backends.p4android",
+        "comtypes.test",
+        "numpy",
+    ],
     noarchive=False,
 )
+
+# The sounddevice wheel ships an optional ASIO PortAudio build. PanPal uses the
+# regular Windows audio endpoint API, so carrying the ASIO DLL only increases
+# the installed and compressed package sizes.
+analysis.binaries = [
+    entry for entry in analysis.binaries
+    if not entry[0].lower().endswith("libportaudio64bit-asio.dll")
+]
 
 python_archive = PYZ(analysis.pure)
 

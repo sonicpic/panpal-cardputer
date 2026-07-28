@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 from .audio import default_audio_device
-from .control_server import default_control_socket
 from .server import BridgeApp
 
 
@@ -31,17 +30,6 @@ def parser() -> argparse.ArgumentParser:
     hooks.add_argument("--install-hooks", action="store_true", help="install the optional Codex Hooks")
     hooks.add_argument("--uninstall-hooks", action="store_true", help="remove only PanPal's Hooks")
     result.add_argument("--hook-port", type=int, default=7790, help="local-only Codex Hook UDP port")
-    result.add_argument(
-        "--control-socket",
-        type=Path,
-        default=None if sys.platform == "win32" else default_control_socket(),
-        help="owner-only local status/control socket (macOS only by default)",
-    )
-    result.add_argument(
-        "--no-control-socket",
-        action="store_true",
-        help="disable the local menu bar status/control socket",
-    )
     result.add_argument("-v", "--verbose", action="store_true")
     return result
 
@@ -61,7 +49,6 @@ async def run(args: argparse.Namespace) -> None:
         record_path=args.record,
         enable_agents=not args.no_codex,
         hook_port=args.hook_port,
-        control_socket_path=None if args.no_control_socket else args.control_socket,
     )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

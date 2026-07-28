@@ -1,55 +1,41 @@
 # Agent instructions for PanPal
 
-PanPal is the public product name. `CardBridge` is the current internal
-compatibility name for the App, Agent, Python package, protocol, and audio
-devices. Follow [`docs/BRANDING.md`](docs/BRANDING.md) before renaming any
-technical identifier.
+PanPal is a Windows-only project for the M5Stack Cardputer ADV. `CardBridge`
+remains in internal executable, package, protocol, and configuration names.
+Read [`docs/BRANDING.md`](docs/BRANDING.md) before changing those identifiers.
 
 ## Read first
 
-1. `README.md` for the user-facing overview.
-2. `docs/INSTALL.md` for the canonical installation flow.
-3. `docs/DEVELOPMENT.md` for source builds and tests.
-4. `docs/SECURITY.md` and `SECURITY.md` before changing permissions, pairing,
-   Codex data handling, or update behavior.
+1. `README.md`
+2. `docs/WINDOWS.md`
+3. `docs/DEVELOPMENT.md`
+4. `SECURITY.md`
 
-Do not treat historical planning or validation logs as current instructions.
-`docs/README.md` labels the current and archived documents.
+## Commands
 
-## Canonical commands
-
-```sh
-./scripts/install-release.sh              # prebuilt public release
-./scripts/doctor.sh
-./scripts/bootstrap.sh
-./scripts/test.sh
-./scripts/build.sh
-./scripts/install.sh
-./scripts/healthcheck.sh
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\bootstrap.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\build.ps1
 ```
 
-Use `--json` on `doctor.sh` and `healthcheck.sh` when an automated caller must
-parse the result. Commands are safe to rerun unless explicitly named
-`uninstall` or `clean`.
+Lower-level checks are listed in `docs/DEVELOPMENT.md`.
 
-## Permission boundaries
+## User approval
 
-An agent may prepare, build, verify, and launch PanPal. It must stop and
-ask the user to approve macOS administrator, Accessibility, Local Network,
-Microphone, Keychain, or Codex Hook trust prompts. Never bypass a consent
-dialog, scrape a password, or disable Gatekeeper.
+Stop for Windows firewall, Bluetooth pairing, microphone-device changes,
+administrator elevation, code-signing prompts, and Codex Hook trust. Do not
+bypass consent dialogs or collect credentials.
 
 ## Generated files and secrets
 
-Never hand-edit generated version files. Run
-`python3 tools/generate_versions.py` after changing `version.json`.
+Run `python tools/generate_versions.py` after changing `version.json`. Do not
+edit generated version files by hand.
 
 Never read, print, commit, or transmit pairing tokens, Wi-Fi passwords, API
-keys, Codex `auth.json`, transcripts, command output, or audio recordings.
+keys, Codex `auth.json`, conversation text, command output, or recordings.
 
-## Completion criteria
+## Completion
 
-Installation is complete only when the installed App version matches
-`version.json`, the App and Agent are running, the driver status is reported,
-and `./scripts/healthcheck.sh` succeeds or clearly reports the user action
-still required. Hardware flashing is a separate, explicit operation.
+A Windows build is complete when Python tests pass, generated files are current,
+the installer is created, the firmware compiles, and `dist/SHA256SUMS.txt`
+matches the release files. Flashing hardware remains a separate action.

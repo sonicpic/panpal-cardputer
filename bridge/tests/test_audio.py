@@ -7,10 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from cardbridge.audio import (
-    BLACKHOLE_DEVICE,
-    CARDBRIDGE_FEED_DEVICE,
-    BlackHoleAudioOutput,
     JitterBuffer,
+    SoundDeviceAudioOutput,
+    VB_CABLE_INPUT_DEVICE,
 )
 
 
@@ -71,8 +70,7 @@ class JitterBufferTests(unittest.TestCase):
 
 
 class AudioOutputSelectionTests(unittest.TestCase):
-    def _start_with(self, devices: list[dict[str, object]]) -> BlackHoleAudioOutput:
-        numpy = types.ModuleType("numpy")
+    def _start_with(self, devices: list[dict[str, object]]) -> SoundDeviceAudioOutput:
         sounddevice = types.ModuleType("sounddevice")
 
         class FakeStream:
@@ -80,29 +78,22 @@ class AudioOutputSelectionTests(unittest.TestCase):
                 pass
 
         sounddevice.query_devices = lambda: devices  # type: ignore[attr-defined]
-        sounddevice.OutputStream = lambda **_kwargs: FakeStream()  # type: ignore[attr-defined]
-        output = BlackHoleAudioOutput(CARDBRIDGE_FEED_DEVICE)
-        with patch.dict(sys.modules, {"numpy": numpy, "sounddevice": sounddevice}):
+        sounddevice.RawOutputStream = lambda **_kwargs: FakeStream()  # type: ignore[attr-defined]
+        output = SoundDeviceAudioOutput(VB_CABLE_INPUT_DEVICE)
+        with patch.dict(sys.modules, {"sounddevice": sounddevice}):
             output.start()
         return output
 
-    def test_prefers_bundled_cardbridge_feed(self) -> None:
+    def test_selects_vb_cable_playback_endpoint(self) -> None:
         output = self._start_with(
             [
-                {"name": BLACKHOLE_DEVICE, "max_output_channels": 2, "default_samplerate": 48000},
-                {"name": CARDBRIDGE_FEED_DEVICE, "max_output_channels": 2, "default_samplerate": 48000},
+                {"name": "Speakers", "max_output_channels": 2, "default_samplerate": 48000},
+                {"name": VB_CABLE_INPUT_DEVICE, "max_output_channels": 2, "default_samplerate": 48000},
             ]
         )
-        self.assertEqual(output.device_name, CARDBRIDGE_FEED_DEVICE)
+        self.assertEqual(output.device_name, VB_CABLE_INPUT_DEVICE)
 
-    def test_falls_back_to_existing_blackhole_install(self) -> None:
-        output = self._start_with(
-            [{"name": BLACKHOLE_DEVICE, "max_output_channels": 2, "default_samplerate": 48000}]
-        )
-        self.assertEqual(output.device_name, BLACKHOLE_DEVICE)
-
-    def test_restarts_an_inactive_core_audio_stream(self) -> None:
-        numpy = types.ModuleType("numpy")
+    def test_restarts_an_inactive_sounddevice_stream(self) -> None:
         sounddevice = types.ModuleType("sounddevice")
         streams = []
 
@@ -127,14 +118,14 @@ class AudioOutputSelectionTests(unittest.TestCase):
 
         sounddevice.query_devices = lambda: [  # type: ignore[attr-defined]
             {
-                "name": CARDBRIDGE_FEED_DEVICE,
+                "name": VB_CABLE_INPUT_DEVICE,
                 "max_output_channels": 2,
                 "default_samplerate": 48000,
             }
         ]
-        sounddevice.OutputStream = output_stream  # type: ignore[attr-defined]
-        output = BlackHoleAudioOutput(CARDBRIDGE_FEED_DEVICE)
-        with patch.dict(sys.modules, {"numpy": numpy, "sounddevice": sounddevice}):
+        sounddevice.RawOutputStream = output_stream  # type: ignore[attr-defined]
+        output = SoundDeviceAudioOutput(VB_CABLE_INPUT_DEVICE)
+        with patch.dict(sys.modules, {"sounddevice": sounddevice}):
             output.start()
             first = streams[0]
             first.active = False
@@ -143,6 +134,17 @@ class AudioOutputSelectionTests(unittest.TestCase):
         self.assertEqual(len(streams), 2)
         self.assertTrue(first.closed)
         self.assertTrue(output.is_running())
+
+    def test_raw_callback_writes_resampled_stereo_int16(self) -> None:
+        output = SoundDeviceAudioOutput(target_ms=20, gain=1.0)
+        output.output_rate = 48_000
+        output.jitter.feed(1, frame(1200))
+        buffer = bytearray(3 * 2 * 2)
+
+        output._callback(buffer, 3, None, None)
+
+        self.assertEqual(struct.unpack("<6h", buffer), (1200,) * 6)
+        self.assertEqual(output.callback_errors, 0)
 
 
 if __name__ == "__main__":

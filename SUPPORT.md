@@ -1,16 +1,13 @@
 # PanPal support
 
-For installation problems, first run:
+Installation and pairing steps are in [`docs/WINDOWS.md`](docs/WINDOWS.md).
+Common failures are listed in
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
-```sh
-./scripts/doctor.sh
-./scripts/healthcheck.sh
-```
+A bug report should include the PanPal version, firmware build, Windows version,
+connection mode, and the relevant part of
+`%LOCALAPPDATA%\CodexDeck\logs\bridge.log`. Remove token、Wi-Fi 凭据、个人路径、
+Codex 内容和录音信息。
 
-Then consult [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Include the
-doctor output, PanPal version, macOS version, CPU architecture, and
-whether a Cardputer is connected. Redact pairing codes, tokens, Wi-Fi names
-if sensitive, paths containing personal data, and Codex content.
-
-Use GitHub Issues for reproducible bugs and feature requests. Use the private
-security channel described in [`SECURITY.md`](SECURITY.md) for vulnerabilities.
+Use GitHub Issues for reproducible bugs and feature requests. Security problems
+should follow [`SECURITY.md`](SECURITY.md).

@@ -1,76 +1,84 @@
-# Development guide
+# Windows 开发说明
 
-## Prerequisites
+## 环境
 
-- macOS 13 or newer on Apple Silicon (the current packaged App target).
-- Xcode and Command Line Tools; `swift --version` must work.
-- Python 3.10 or newer.
-- PlatformIO Core.
-- Internet access for the pinned Sparkle archive and Python/PlatformIO inputs.
+- Windows 10 或 Windows 11，x64；
+- Python 3.10 或更高版本；
+- Inno Setup 6；
+- 支持 ESP32-S3 的 USB 数据线；
+- 真机语音测试需要 VB-CABLE；
+- 蓝牙测试需要可用的 Windows Bluetooth LE 适配器。
 
-Check the machine without changing it:
+安装 Inno Setup：
 
-```sh
-./scripts/doctor.sh
+```powershell
+winget install JRSoftware.InnoSetup
 ```
 
-## Bootstrap
+## 初始化
 
-```sh
-./scripts/bootstrap.sh
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\bootstrap.ps1
 ```
 
-This creates the isolated `bridge/.venv` for the packaged Agent and
-`tools/.venv` for PlatformIO. Keeping build tools out of the Agent environment
-prevents unrelated packages from being bundled into the App. Generated version
-files are checked but never silently rewritten during a build.
+脚本在 `windows/.venv-build` 创建隔离环境，并安装 Bridge、PyInstaller 和
+PlatformIO。它不会修改系统 Python 包。
 
-## Tests and builds
+## 测试
 
-```sh
-./scripts/test.sh
-./scripts/build.sh
+```powershell
+$env:PYTHONPATH = "$PWD\bridge"
+.\windows\.venv-build\Scripts\python.exe -m unittest discover -s bridge\tests -v
+.\windows\.venv-build\Scripts\python.exe tools\generate_versions.py --check
+.\windows\.venv-build\Scripts\python.exe tools\check_project.py
+git diff --check
 ```
 
-The test script runs generated-version validation, Python tests, Swift tests,
-and a firmware build when PlatformIO is available. The build script packages
-the signed App, embedded Agent, Sparkle framework, and microphone driver under
-`macos/dist/CardBridge.app`.
+编译固件：
 
-The lower-level commands remain available:
-
-```sh
-PYTHONPATH=bridge:. bridge/.venv/bin/python -m unittest discover -s bridge/tests -v
-swift test --package-path macos
-pio run
-macos/scripts/build_app.sh
-python3 tools/validate_release.py --app macos/dist/CardBridge.app
+```powershell
+.\windows\.venv-build\Scripts\pio.exe run
 ```
 
-## Generated files
+## 完整构建
 
-`version.json` is authoritative. After changing it:
-
-```sh
-python3 tools/generate_versions.py
-python3 tools/generate_versions.py --check
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\build.ps1
 ```
 
-Do not hand-edit `bridge/cardbridge/_generated_version.py`,
-`src/generated_version.h`, `macos/Shared/GeneratedVersion.swift`, or
-`release/compatibility.json`.
+可用参数：
 
-## Release build
-
-The release gate is:
-
-```sh
-CODE_SIGN_IDENTITY="Developer ID Application: …" \
-  REQUIRE_NOTARIZATION=1 \
-  NOTARY_PROFILE=cardbridge-notary \
-  macos/scripts/release.sh
+```text
+-SkipBootstrap   使用已有的 windows/.venv-build
+-SkipFirmware    跳过固件编译
+-SkipInstaller   跳过 Inno Setup
 ```
 
-Public distribution requires a Developer ID certificate, notarization
-credentials, a Sparkle signing key, a tag matching `version.json`, and a
-review of `THIRD_PARTY_NOTICES.md` and `assets/ASSET_SOURCES.md`.
+完整构建会生成安装程序、两个同内容的固件文件和 `SHA256SUMS.txt`。
+
+## 版本文件
+
+`version.json` 是版本源。修改后运行：
+
+```powershell
+.\windows\.venv-build\Scripts\python.exe tools\generate_versions.py
+.\windows\.venv-build\Scripts\python.exe tools\generate_versions.py --check
+```
+
+下面三个文件由脚本生成：
+
+```text
+bridge/cardbridge/_generated_version.py
+src/generated_version.h
+release/compatibility.json
+```
+
+## 真机检查
+
+固件变更至少检查串口启动、Wi-Fi 重连、BLE 重连和 G0 语音。语音测试还要确认：
+
+- `CABLE Input` 有实时电平；
+- 默认麦克风切换后能恢复；
+- 按住与双击锁定均能结束；
+- 自动 Enter 在语音结束 1400 ms 后触发；
+- 新一轮语音会取消上一轮待发送的 Enter。

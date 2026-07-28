@@ -1,25 +1,11 @@
-# PanPal documentation map
+# PanPal 文档
 
-These are the current documents an installer or AI agent should use:
-
-- [`BRANDING.md`](BRANDING.md) — public PanPal name and internal
-  CardBridge compatibility identifiers.
-- [`INSTALL.md`](INSTALL.md) — prebuilt and source installation, permissions,
-  firmware, uninstall, and verification.
-- [`DEVELOPMENT.md`](DEVELOPMENT.md) — prerequisites, bootstrap, tests, and
-  build outputs.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — current process and data-flow model.
-- [`PROTOCOL.md`](PROTOCOL.md) — device, audio, and local control contracts.
-- [`DEVICE_UI.md`](DEVICE_UI.md) / [`简体中文`](DEVICE_UI.zh-CN.md) —
-  home/detail screenshots, visual states, user-facing copy, quota styles, and
-  controls.
-- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — diagnosis and recovery.
-- [`REPOSITORY_SETTINGS.md`](REPOSITORY_SETTINGS.md) — GitHub controls that
-  cannot be configured from a checkout.
-- [`SECURITY.md`](../SECURITY.md) — threat model and reporting policy.
-
-`GOAL.md` remains the product requirements record. `MAC_MENU_BAR_APP_PLAN.md`
-and older sections of `VALIDATION.md` are historical engineering records, not
-the canonical installation instructions. Do not use a historical version
-number or old BlackHole-only workflow from those records when installing the
-current release.
+- [`WINDOWS.md`](WINDOWS.md)：安装、配对、语音、企业 Wi-Fi、日志与构建产物。
+- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)：Windows 常见故障。
+- [`DEVELOPMENT.md`](DEVELOPMENT.md)：开发环境、测试和打包。
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)：Wi-Fi、BLE、音频和 Codex 数据路径。
+- [`CUSTOM_QUOTA_API.zh-CN.md`](CUSTOM_QUOTA_API.zh-CN.md)：中转站只读额度接口约定。
+- [`PROTOCOL.md`](PROTOCOL.md)：设备协议与能力协商。
+- [`DEVICE_UI.zh-CN.md`](DEVICE_UI.zh-CN.md)：Cardputer 页面、状态和按键。
+- [`BRANDING.md`](BRANDING.md)：PanPal 名称与保留的兼容标识。
+- [`../SECURITY.md`](../SECURITY.md)：安全边界与漏洞报告。

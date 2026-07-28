@@ -18,7 +18,7 @@ from .agents import AGENT_LIMIT, AgentStore
 
 LOG = logging.getLogger("cardbridge.codex")
 APP_SERVER_STREAM_LIMIT = 4 * 1024 * 1024
-THREAD_REFRESH_SECONDS = 2
+THREAD_REFRESH_SECONDS = 3
 ACCOUNT_REFRESH_SECONDS = 30
 ROLLOUT_INITIAL_SCAN_BYTES = 4 * 1024 * 1024
 _API_AUTH_MODES = frozenset(
@@ -407,8 +407,15 @@ class CodexAppServerClient:
 
 
 class CodexMonitor:
-    def __init__(self, store: AgentStore, executable: str | None = None) -> None:
+    def __init__(
+        self,
+        store: AgentStore,
+        executable: str | None = None,
+        *,
+        quota_source: str = "official",
+    ) -> None:
         self.store = store
+        self.quota_source = quota_source
         self.executables = [executable] if executable else find_codex_candidates()
         self.executable = self.executables[0] if self.executables else None
         self.client: CodexAppServerClient | None = None
@@ -475,6 +482,8 @@ class CodexMonitor:
     async def refresh_account(self) -> None:
         if self.client is None:
             return
+        if self.quota_source == "custom":
+            return
         # Session history is local and remains useful in API/custom-provider
         # mode. Subscription quota is a separate, optional ChatGPT-only view.
         try:
@@ -537,10 +546,14 @@ class CodexMonitor:
 
     async def _notification(self, method: str, params: dict[str, Any]) -> None:
         if method == "account/rateLimits/updated":
+            if self.quota_source == "custom":
+                return
             rate_limits = params.get("rateLimits")
             if self.store.quota_available and isinstance(rate_limits, dict):
                 self.store.update_rate_limits({"rateLimits": rate_limits})
         elif method == "account/updated":
+            if self.quota_source == "custom":
+                return
             # Only known API/custom-provider modes may show Unlimited
             # immediately. ChatGPT token modes, null, and future enum values
             # stay Unknown until account/read confirms their quota semantics.

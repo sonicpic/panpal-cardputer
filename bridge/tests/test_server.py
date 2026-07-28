@@ -424,7 +424,7 @@ class MdnsLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
 
 class StartupDegradationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_missing_blackhole_does_not_stop_keyboard_or_network_bridge(self) -> None:
+    async def test_missing_vb_cable_does_not_stop_keyboard_or_network_bridge(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app = BridgeApp(
                 host="127.0.0.1",
@@ -436,15 +436,15 @@ class StartupDegradationTests(unittest.IsolatedAsyncioTestCase):
                 enable_agents=False,
             )
             with patch(
-                "cardbridge.audio.BlackHoleAudioOutput.start",
-                side_effect=RuntimeError("BlackHole 2ch is missing"),
+                "cardbridge.audio.SoundDeviceAudioOutput.start",
+                side_effect=RuntimeError("CABLE Input is missing"),
             ):
                 await app.start()
             try:
                 snapshot = app.status_snapshot()
                 self.assertEqual(snapshot["agent"]["state"], "ready")
                 self.assertFalse(snapshot["audio"]["running"])
-                self.assertIn("BlackHole", snapshot["agent"]["last_error"])
+                self.assertIn("CABLE Input", snapshot["agent"]["last_error"])
                 self.assertIsNotNone(app.tcp_server)
             finally:
                 await app.stop()

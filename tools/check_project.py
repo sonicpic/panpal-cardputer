@@ -24,21 +24,18 @@ def main() -> int:
         "CONTRIBUTING.md",
         "SECURITY.md",
         "project-install.json",
-        "docs/INSTALL.md",
         "docs/BRANDING.md",
         "docs/DEVELOPMENT.md",
         "docs/ARCHITECTURE.md",
         "docs/PROTOCOL.md",
         "docs/TROUBLESHOOTING.md",
-        "scripts/doctor.sh",
-        "scripts/install-release.sh",
-        "scripts/bootstrap.sh",
-        "scripts/test.sh",
-        "scripts/build.sh",
-        "scripts/install.sh",
-        "scripts/replace_app.sh",
-        "scripts/healthcheck.sh",
-        "scripts/security-scan.sh",
+        "docs/WINDOWS.md",
+        "windows/bootstrap.ps1",
+        "windows/build.ps1",
+        "windows/installer/CodexDeck.iss",
+        "bridge/packaging/CardBridgeWindows.spec",
+        "tools/doctor.py",
+        "tools/scan_secrets.py",
     ]
     for relative in required:
         if not (ROOT / relative).exists():
@@ -49,8 +46,12 @@ def main() -> int:
         manifest = json.loads((ROOT / "project-install.json").read_text(encoding="utf-8"))
         if manifest.get("name") != "PanPal":
             errors.append("project-install.json name must be PanPal")
-        if versions["release"] != versions["mac_app"]["version"]:
-            errors.append("version.json release and mac_app.version differ")
+        if manifest.get("platform") != "Windows":
+            errors.append("project-install.json platform must be Windows")
+        if versions["release"] != versions["windows_app"]["version"]:
+            errors.append("version.json release and windows_app.version differ")
+        if versions["release"] != versions["bridge_agent"]["version"]:
+            errors.append("version.json release and bridge_agent.version differ")
     except (OSError, ValueError, KeyError) as exc:
         errors.append(f"invalid project metadata: {exc}")
 

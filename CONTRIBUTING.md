@@ -1,39 +1,23 @@
 # Contributing to PanPal
 
-PanPal combines ESP32-S3 firmware, a Python bridge, a Swift macOS menu bar
-app, and a GPLv3-derived audio driver. Read the current guides in
-[`docs/README.md`](docs/README.md) before changing code.
+PanPal contains the Windows Bridge, Cardputer ADV firmware, installer scripts,
+and protocol tests. Read [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) before
+changing code.
 
-## Before opening a pull request
+Run these checks before opening a pull request:
 
-```sh
-./scripts/doctor.sh
-./scripts/test.sh
+```powershell
+$env:PYTHONPATH = "$PWD\bridge"
+.\windows\.venv-build\Scripts\python.exe -m unittest discover -s bridge\tests -v
+.\windows\.venv-build\Scripts\python.exe tools\generate_versions.py --check
+.\windows\.venv-build\Scripts\python.exe tools\check_project.py
+.\windows\.venv-build\Scripts\pio.exe run
 git diff --check
 ```
 
-If you change `version.json`, regenerate and verify all generated constants:
+Generated version files come from `version.json`. Protocol changes must update
+`docs/PROTOCOL.md`, compatibility tests, and the changelog in the same pull
+request.
 
-```sh
-python3 tools/generate_versions.py
-python3 tools/generate_versions.py --check
-```
-
-Keep firmware dependencies pinned in `platformio.ini`. Do not add PSRAM
-configuration: Cardputer ADV uses an ESP32-S3 without PSRAM.
-
-## Change boundaries
-
-- Do not hand-edit generated files.
-- Do not commit pairing tokens, Wi-Fi passwords, Keychain exports, API keys,
-  Core Audio recordings, or local Codex transcripts.
-- Keep protocol changes backward compatible or update `version.json`,
-  `docs/PROTOCOL.md`, compatibility tests, and release notes together.
-- Preserve the owner-only local control socket and token redaction behavior.
-- Driver changes must retain the GPLv3 notices and document the upstream base
-  and CardBridge-specific modifications.
-
-Pull requests should explain user-visible behavior, permissions affected,
-upgrade/migration behavior, and how the change was tested. Hardware-only
-validation should include the board revision, firmware build, and a concise
-serial or health-check result.
+Do not commit pairing tokens, Wi-Fi credentials, API keys, Codex data, personal
+paths, logs with private content, or audio recordings.

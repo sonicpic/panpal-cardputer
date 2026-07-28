@@ -5,7 +5,6 @@ import json
 import os
 import secrets
 import socket
-import sys
 import threading
 import time
 import uuid
@@ -14,7 +13,7 @@ from typing import Any
 
 from ._generated_version import CONFIG_SCHEMA
 from .protocol import ProtocolError, token_bytes
-from .token_store import KeychainTokenStore, TokenStore, WindowsDpapiTokenStore
+from .token_store import TokenStore, WindowsDpapiTokenStore
 
 
 VOICE_DEFAULTS: dict[str, object] = {
@@ -27,33 +26,47 @@ VOICE_DEFAULTS: dict[str, object] = {
     "send_enter_on_stop": False,
 }
 BRIDGE_TRANSPORTS = frozenset({"both", "wifi", "bluetooth"})
+QUOTA_DEFAULTS: dict[str, object] = {
+    "source": "official",
+    "url": "",
+    "account_label": "",
+    "poll_seconds": 120,
+}
+QUOTA_SOURCES = frozenset({"official", "custom"})
+_QUOTA_SECRET_ID = "custom-quota-api-key"
 
 
 def default_config_path() -> Path:
-    """Return a per-user configuration path appropriate for the host OS."""
-
-    if sys.platform == "win32":
-        app_data = os.environ.get("APPDATA")
-        if app_data:
-            return Path(app_data) / "CodexDeck" / "config.json"
-        return Path.home() / "AppData" / "Roaming" / "CodexDeck" / "config.json"
-    return Path.home() / ".cardbridge" / "config.json"
+    app_data = os.environ.get("APPDATA")
+    if app_data:
+        return Path(app_data) / "CodexDeck" / "config.json"
+    return Path.home() / "AppData" / "Roaming" / "CodexDeck" / "config.json"
 
 
 class BridgeConfig:
     """Thread-safe persistent bridge identity and paired-device token store."""
 
-    def __init__(self, path: Path | None = None, token_store: TokenStore | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | None = None,
+        token_store: TokenStore | None = None,
+        quota_token_store: TokenStore | None = None,
+    ) -> None:
         production_config = path is None
         self.path = path or default_config_path()
         self._production_config = production_config
         if production_config:
             self._secure_production_directory()
         self._token_store = token_store
-        if production_config and token_store is None and sys.platform == "darwin":
-            self._token_store = KeychainTokenStore()
-        if production_config and token_store is None and sys.platform == "win32":
+        self._quota_token_store = quota_token_store
+        if production_config and token_store is None:
             self._token_store = WindowsDpapiTokenStore()
+        if production_config and quota_token_store is None:
+            self._quota_token_store = WindowsDpapiTokenStore(
+                self.path.parent / "quota-secrets",
+                purpose="PanPal quota access key",
+                secret_label="quota access key",
+            )
         self._lock = threading.RLock()
         self.data: dict[str, Any] = {}
         self._load()
@@ -67,13 +80,14 @@ class BridgeConfig:
         return str(self.data["mac_name"])
 
     def _defaults(self) -> dict[str, Any]:
-        hostname = socket.gethostname().split(".")[0] or "Mac"
+        hostname = socket.gethostname().split(".")[0] or "Windows PC"
         return {
             "config_schema": CONFIG_SCHEMA,
             "bridge_id": uuid.uuid4().hex,
             "mac_name": hostname,
             "devices": {},
             "voice": dict(VOICE_DEFAULTS),
+            "quota": dict(QUOTA_DEFAULTS),
             "bridge_transport": "both",
         }
 
@@ -112,8 +126,20 @@ class BridgeConfig:
                 if self.data.get("bridge_transport") not in BRIDGE_TRANSPORTS:
                     self.data["bridge_transport"] = "both"
                     migrated = True
+                raw_quota = self.data.get("quota")
+                quota = dict(QUOTA_DEFAULTS)
+                if isinstance(raw_quota, dict):
+                    quota.update(raw_quota)
+                else:
+                    migrated = True
+                normalized_quota = self._normalize_quota_settings(quota)
+                if normalized_quota != raw_quota:
+                    migrated = True
+                self.data["quota"] = normalized_quota
                 if self._token_store is not None:
                     migrated = self._migrate_tokens_to_store() or migrated
+                if self._quota_token_store is not None:
+                    migrated = self._migrate_quota_key_to_store() or migrated
                 if migrated:
                     self.save()
             else:
@@ -136,10 +162,7 @@ class BridgeConfig:
 
     def _secure_production_directory(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        # Windows ACLs and DPAPI, rather than POSIX mode bits, protect the
-        # profile directory and pairing-token blobs.
-        if sys.platform != "win32":
-            os.chmod(self.path.parent, 0o700)
+        # DPAPI binds pairing tokens to the current Windows user profile.
 
     def pair(self, device_id: str, device_name: str = "Cardputer") -> str:
         token = secrets.token_hex(32)  # 32 cryptographically-random bytes.
@@ -219,6 +242,17 @@ class BridgeConfig:
             migrated = True
         return migrated
 
+    def _migrate_quota_key_to_store(self) -> bool:
+        assert self._quota_token_store is not None
+        quota = self.data.get("quota")
+        if not isinstance(quota, dict) or "api_key" not in quota:
+            return False
+        api_key = quota.pop("api_key")
+        if isinstance(api_key, str) and api_key:
+            self._validate_ascii_secret(api_key)
+            self._quota_token_store.put(_QUOTA_SECRET_ID, api_key)
+        return True
+
     def validate(self, device_id: str, token: object) -> bool:
         if not isinstance(token, str):
             return False
@@ -258,6 +292,91 @@ class BridgeConfig:
             self.data["voice"] = normalized
             self.save()
             return dict(normalized)
+
+    @staticmethod
+    def _validate_ascii_secret(value: str) -> None:
+        try:
+            value.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ValueError("quota access key must contain ASCII characters only") from exc
+
+    @staticmethod
+    def _normalize_quota_settings(values: dict[str, object]) -> dict[str, object]:
+        source = str(values.get("source") or "official")
+        if source not in QUOTA_SOURCES:
+            source = "official"
+        url = values.get("url")
+        account_label = values.get("account_label")
+        poll_seconds = values.get("poll_seconds")
+        if not isinstance(poll_seconds, int) or isinstance(poll_seconds, bool):
+            poll_seconds = int(QUOTA_DEFAULTS["poll_seconds"])
+        return {
+            "source": source,
+            "url": str(url).strip() if isinstance(url, str) else "",
+            "account_label": (
+                str(account_label).strip() if isinstance(account_label, str) else ""
+            ),
+            "poll_seconds": max(120, min(3600, poll_seconds)),
+            **(
+                {"api_key": values["api_key"]}
+                if isinstance(values.get("api_key"), str) and values["api_key"]
+                else {}
+            ),
+        }
+
+    def quota_settings(self, *, include_secret: bool = False) -> dict[str, object]:
+        """Return normalized custom-quota preferences without leaking its key."""
+
+        with self._lock:
+            raw = self.data.get("quota")
+            normalized = self._normalize_quota_settings(
+                raw if isinstance(raw, dict) else {}
+            )
+            stored_key = (
+                self._quota_token_store.get(_QUOTA_SECRET_ID)
+                if self._quota_token_store is not None
+                else normalized.get("api_key")
+            )
+            result = {key: value for key, value in normalized.items() if key != "api_key"}
+            result["api_key_present"] = bool(stored_key)
+            if include_secret:
+                result["api_key"] = str(stored_key or "")
+            return result
+
+    def update_quota_settings(self, values: dict[str, object]) -> dict[str, object]:
+        allowed = set(QUOTA_DEFAULTS)
+        with self._lock:
+            requested_source = values.get("source")
+            if requested_source is not None and (
+                not isinstance(requested_source, str)
+                or requested_source not in QUOTA_SOURCES
+            ):
+                raise ValueError("quota source must be official or custom")
+            current = self._normalize_quota_settings(
+                self.data.get("quota") if isinstance(self.data.get("quota"), dict) else {}
+            )
+            current.update({key: value for key, value in values.items() if key in allowed})
+            normalized = self._normalize_quota_settings(current)
+            api_key = values.get("api_key")
+            if isinstance(api_key, str) and api_key:
+                self._validate_ascii_secret(api_key)
+                if self._quota_token_store is not None:
+                    self._quota_token_store.put(_QUOTA_SECRET_ID, api_key)
+                else:
+                    normalized["api_key"] = api_key
+            elif values.get("clear_api_key") is True:
+                if self._quota_token_store is not None:
+                    self._quota_token_store.delete(_QUOTA_SECRET_ID)
+                normalized.pop("api_key", None)
+            elif self._quota_token_store is None and isinstance(
+                self.data.get("quota"), dict
+            ):
+                existing = self.data["quota"].get("api_key")
+                if isinstance(existing, str) and existing:
+                    normalized["api_key"] = existing
+            self.data["quota"] = normalized
+            self.save()
+            return self.quota_settings()
 
     def bridge_transport(self) -> str:
         value = self.data.get("bridge_transport")

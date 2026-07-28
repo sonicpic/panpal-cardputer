@@ -1,22 +1,18 @@
 from __future__ import annotations
 
+import math
 import struct
-import sys
 import threading
 from collections import OrderedDict
 from typing import Any
 
 from .protocol import AUDIO_SAMPLE_RATE, AUDIO_SAMPLES_PER_FRAME
 
-CARDBRIDGE_FEED_DEVICE = "CardBridge Microphone Feed"
-BLACKHOLE_DEVICE = "BlackHole 2ch"
 VB_CABLE_INPUT_DEVICE = "CABLE Input"
 
 
 def default_audio_device() -> str:
-    """Return the safe virtual-microphone feed expected on this platform."""
-
-    return VB_CABLE_INPUT_DEVICE if sys.platform == "win32" else CARDBRIDGE_FEED_DEVICE
+    return VB_CABLE_INPUT_DEVICE
 
 
 class JitterBuffer:
@@ -40,7 +36,7 @@ class JitterBuffer:
     def feed(self, sequence: int, payload: bytes) -> None:
         with self._lock:
             if self._next_sequence is not None and sequence < self._next_sequence:
-                # While capture is paused (mute, reconnect, Mac sleep) playback
+                # While capture is paused (mute, reconnect, or PC sleep) playback
                 # keeps advancing _next_sequence past the sender's frozen
                 # counter. Without a resync every resumed packet would be
                 # dropped as late forever.
@@ -125,7 +121,7 @@ class NullAudioOutput:
         self.jitter.feed(sequence, payload)
 
 
-class BlackHoleAudioOutput(NullAudioOutput):
+class SoundDeviceAudioOutput(NullAudioOutput):
     def __init__(
         self,
         device_name: str | None = None,
@@ -140,8 +136,7 @@ class BlackHoleAudioOutput(NullAudioOutput):
         # keeps the codec's SNR and stays tunable without reflashing.
         self.gain = gain
         self._stream: Any = None
-        self._numpy: Any = None
-        self._source: list[float] = []
+        self._source: list[int] = []
         self._phase = 0.0
         self.output_rate = 48_000.0
         self.callback_errors = 0
@@ -154,7 +149,6 @@ class BlackHoleAudioOutput(NullAudioOutput):
         if self._stream is not None:
             self.stop()
         try:
-            import numpy
             import sounddevice
         except ImportError as exc:
             raise RuntimeError(
@@ -163,41 +157,25 @@ class BlackHoleAudioOutput(NullAudioOutput):
         stream: Any = None
         try:
             devices = sounddevice.query_devices()
-            requested_names = [self.device_name]
-            # Existing users keep working while the bundled CardBridge driver has
-            # not been installed yet. Explicit custom device names do not silently
-            # fall back to a different destination.
-            if self.device_name == CARDBRIDGE_FEED_DEVICE:
-                requested_names.append(BLACKHOLE_DEVICE)
-            candidates = []
-            for requested_name in requested_names:
-                candidates = [
-                    (index, device)
-                    for index, device in enumerate(devices)
-                    if requested_name.lower() in str(device["name"]).lower()
-                    and int(device["max_output_channels"]) >= 2
-                ]
-                if candidates:
-                    break
+            candidates = [
+                (index, device)
+                for index, device in enumerate(devices)
+                if self.device_name.lower() in str(device["name"]).lower()
+                and int(device["max_output_channels"]) >= 2
+            ]
             if not candidates:
-                if sys.platform == "win32":
-                    raise RuntimeError(
-                        "virtual microphone output was not found; install VB-CABLE "
-                        "and select its 'CABLE Input' playback device"
-                    )
                 raise RuntimeError(
-                    "audio output device was not found; install CardBridge Microphone "
-                    f"or {BLACKHOLE_DEVICE}"
+                    "virtual microphone output was not found; install VB-CABLE "
+                    "and select its 'CABLE Input' playback device"
                 )
             index, device = candidates[0]
             self.device_name = str(device["name"])
             self.output_rate = float(device["default_samplerate"] or 48_000)
-            self._numpy = numpy
-            stream = sounddevice.OutputStream(
+            stream = sounddevice.RawOutputStream(
                 device=index,
                 samplerate=self.output_rate,
                 channels=2,
-                dtype="float32",
+                dtype="int16",
                 blocksize=0,
                 callback=self._callback,
             )
@@ -252,28 +230,55 @@ class BlackHoleAudioOutput(NullAudioOutput):
         if status:
             self.callback_statuses += 1
         try:
-            np = self._numpy
-            step = AUDIO_SAMPLE_RATE / self.output_rate
-            positions = self._phase + np.arange(frames, dtype=np.float64) * step
-            required = int(positions[-1]) + 2 if frames else 2
-            if len(self._source) < required:
-                samples = self.jitter.read_samples(required - len(self._source))
-                self._source.extend(sample / 32768.0 for sample in samples)
-            mono = np.interp(positions, np.arange(len(self._source)), self._source).astype(np.float32)
-            if self.gain != 1.0:
-                # tanh soft-clip: loud syllables compress instead of hard-clipping,
-                # which would smear the waveform STT depends on.
-                mono = np.tanh(mono * self.gain).astype(np.float32)
-            outdata[:, 0] = mono
-            outdata[:, 1] = mono
-            next_position = self._phase + frames * step
-            consumed = int(next_position)
-            if consumed:
-                del self._source[:consumed]
-            self._phase = next_position - consumed
+            mono = self._render_mono(frames)
+            output = memoryview(outdata).cast("h")
+            for index, sample in enumerate(mono):
+                output[index * 2] = sample
+                output[index * 2 + 1] = sample
         except Exception:
             # PortAudio stops invoking a callback that raises. Fail silent and
             # let the bridge watchdog recreate the stream on its next check.
             self.callback_errors += 1
             self._callback_failed = True
-            outdata.fill(0)
+            output = memoryview(outdata).cast("B")
+            output[:] = b"\0" * len(output)
+
+    def _render_mono(self, frames: int) -> list[int]:
+        """Resample one callback block without pulling NumPy into the app.
+
+        ``RawOutputStream`` supplies a writable byte buffer.  Processing the
+        16 kHz source once and writing stereo int16 samples keeps the callback
+        small while avoiding NumPy's native runtime and OpenBLAS bundle.
+        """
+
+        if frames <= 0:
+            return []
+        step = AUDIO_SAMPLE_RATE / self.output_rate
+        last_position = self._phase + (frames - 1) * step
+        required = int(last_position) + 2
+        if len(self._source) < required:
+            samples = self.jitter.read_samples(required - len(self._source))
+            if self.gain == 1.0:
+                self._source.extend(samples)
+            else:
+                gain = self.gain
+                self._source.extend(
+                    max(-32768, min(32767, round(math.tanh(sample / 32768.0 * gain) * 32767)))
+                    for sample in samples
+                )
+
+        result: list[int] = []
+        position = self._phase
+        for _ in range(frames):
+            index = int(position)
+            fraction = position - index
+            first = self._source[index]
+            second = self._source[index + 1]
+            result.append(round(first + (second - first) * fraction))
+            position += step
+
+        consumed = int(position)
+        if consumed:
+            del self._source[:consumed]
+        self._phase = position - consumed
+        return result

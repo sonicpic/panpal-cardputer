@@ -41,12 +41,16 @@ class FakeCaptureManager:
 
 
 class VoiceInputTests(unittest.TestCase):
+    def test_default_enter_delay_is_1400_ms(self) -> None:
+        controller, _config, _keyboard, _capture = self.make_controller()
+        self.assertEqual(controller.enter_delay_s, 1.4)
+
     def test_windows_com_is_configured_for_ble_and_audio_mta(self) -> None:
         if sys.platform == "win32":
             self.assertEqual(getattr(sys, "coinit_flags", None), 0)
 
     def make_controller(
-        self, *, enter_delay_s: float = 1.0
+        self, *, enter_delay_s: float = 1.4
     ) -> tuple[VoiceInputController, BridgeConfig, KeyInjector, FakeCaptureManager]:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

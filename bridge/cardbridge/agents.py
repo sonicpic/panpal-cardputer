@@ -110,8 +110,6 @@ def _activity_for_command(item: dict[str, Any]) -> str:
         return "Flashing firmware" if "upload" in lowered else "Building firmware"
     if program in {"pytest", "unittest"} or "pytest" in lowered:
         return "Running tests"
-    if program in {"xcodebuild", "swift"}:
-        return "Running Swift tests" if "test" in lowered else "Building the Mac app"
     if program in {"rg", "grep", "find"}:
         return "Searching project files"
     if program == "git":

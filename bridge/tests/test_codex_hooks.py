@@ -77,7 +77,7 @@ class CodexHookInstallerTests(unittest.TestCase):
                 ]
             }
         }
-        command = "/Applications/CardBridgeAgent --cardbridge-codex-hook"
+        command = '"C:\\Program Files\\PanPal\\CardBridge.exe" --cardbridge-codex-hook'
         once = transform(original, command=command, install=True)
         twice = transform(once, command=command, install=True)
         self.assertEqual(once, twice)
@@ -95,7 +95,7 @@ class CodexHookInstallerTests(unittest.TestCase):
             self.assertEqual(len(owned), 1)
 
     def test_uninstall_removes_only_cardbridge_entries(self) -> None:
-        command = "/Applications/CardBridgeAgent --cardbridge-codex-hook"
+        command = '"C:\\Program Files\\PanPal\\CardBridge.exe" --cardbridge-codex-hook'
         installed = transform({}, command=command, install=True)
         removed = transform(installed, command=command, install=False)
         self.assertEqual(removed, {})

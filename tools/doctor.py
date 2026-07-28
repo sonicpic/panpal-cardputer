@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only PanPal environment diagnostics.
-
-This intentionally uses only the Python standard library so it can run before
-the project virtual environment exists.
-"""
+"""Read-only Windows build and installation diagnostics for PanPal."""
 
 from __future__ import annotations
 
@@ -11,7 +7,6 @@ import argparse
 import json
 import os
 import platform
-import plistlib
 import shutil
 import subprocess
 import sys
@@ -28,12 +23,16 @@ def command_version(command: str, *args: str) -> str | None:
         return None
     try:
         result = subprocess.run(
-            [path, *args], capture_output=True, text=True, timeout=10, check=False
+            [path, *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    output = (result.stdout or result.stderr).strip().splitlines()
-    return output[0] if output else path
+    lines = (result.stdout or result.stderr).strip().splitlines()
+    return lines[0] if lines else path
 
 
 def add(
@@ -49,38 +48,45 @@ def add(
     checks.append(item)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Check PanPal build prerequisites")
-    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-    args = parser.parse_args()
+def first_existing(paths: list[Path]) -> Path | None:
+    return next((path for path in paths if path.is_file()), None)
 
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check PanPal on Windows")
+    parser.add_argument("--json", action="store_true", help="emit JSON")
+    args = parser.parse_args()
     checks: list[dict[str, Any]] = []
+
     try:
-        version_data = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
-        release = str(version_data["release"])
-        minimum_os = str(json.loads((ROOT / "project-install.json").read_text())["minimum_os"])
+        versions = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            (ROOT / "project-install.json").read_text(encoding="utf-8")
+        )
+        release = str(versions["release"])
         add(checks, "repository", "ok", f"PanPal {release} at {ROOT}")
     except (OSError, ValueError, KeyError) as exc:
         release = "unknown"
-        minimum_os = "13.0"
-        add(checks, "repository", "error", f"cannot read project metadata: {exc}")
+        manifest = {}
+        add(checks, "repository", "error", f"cannot read metadata: {exc}")
 
-    if platform.system() != "Darwin":
-        add(checks, "operating_system", "error", f"{platform.system()} is unsupported")
-    else:
-        add(checks, "operating_system", "ok", f"macOS {platform.mac_ver()[0] or 'unknown'}")
-
+    windows = platform.system() == "Windows"
+    add(
+        checks,
+        "operating_system",
+        "ok" if windows else "error",
+        f"{platform.system()} {platform.release()}",
+        None if windows else "Build and run PanPal on Windows 10 or Windows 11.",
+    )
     architecture = platform.machine()
-    if architecture != "arm64":
-        add(
-            checks,
-            "architecture",
-            "error",
-            f"{architecture}; current packaged target is Apple Silicon arm64",
-            "Use an arm64 Mac or publish a tested universal build before claiming Intel support.",
-        )
-    else:
-        add(checks, "architecture", "ok", architecture)
+    architecture_ok = architecture.lower() in {"amd64", "x86_64"}
+    add(
+        checks,
+        "architecture",
+        "ok" if architecture_ok else "error",
+        architecture,
+        None if architecture_ok else "The packaged application targets Windows x64.",
+    )
 
     python_ok = sys.version_info >= (3, 10)
     add(
@@ -88,77 +94,79 @@ def main() -> int:
         "python",
         "ok" if python_ok else "error",
         platform.python_version(),
-        None if python_ok else "Install Python 3.10 or newer and set PYTHON_BIN.",
+        None if python_ok else "Install Python 3.10 or newer.",
     )
-
-    for command, label, args_for_version in (
-        ("xcode-select", "xcode_command_line_tools", ("--version",)),
-        ("swift", "swift", ("--version",)),
-        ("codesign", "codesign", ("-h",)),
-        ("curl", "curl", ("--version",)),
+    for command, label, version_args in (
+        ("git", "git", ("--version",)),
+        ("powershell", "powershell", ("-NoProfile", "-Command", "$PSVersionTable.PSVersion")),
     ):
-        found = command_version(command, *args_for_version)
-        add(
-            checks,
-            label,
-            "ok" if found else "error",
-            found or "not found",
-            f"Install or select the macOS developer tool: {command}",
-        )
+        version = command_version(command, *version_args)
+        add(checks, label, "ok" if version else "warning", version or "not found")
 
-    pio = shutil.which("pio") or (
-        str(ROOT / "tools/.venv/bin/pio")
-        if (ROOT / "tools/.venv/bin/pio").exists()
-        else None
+    local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
+    inno = first_existing(
+        [
+            local_app_data / "Programs" / "Inno Setup 6" / "ISCC.exe",
+            Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"),
+            Path(r"C:\Program Files\Inno Setup 6\ISCC.exe"),
+        ]
     )
+    add(
+        checks,
+        "inno_setup",
+        "ok" if inno else "warning",
+        str(inno) if inno else "not found",
+        None if inno else "Install with: winget install JRSoftware.InnoSetup",
+    )
+
+    pio = shutil.which("pio") or str(
+        ROOT / "windows" / ".venv-build" / "Scripts" / "pio.exe"
+    )
+    pio_exists = Path(pio).is_file()
     add(
         checks,
         "platformio",
-        "ok" if pio else "warning",
-        pio or "not found before bootstrap",
-        "Run ./scripts/bootstrap.sh to install the project-local PlatformIO tool.",
+        "ok" if pio_exists else "warning",
+        pio if pio_exists else "not found",
+        None if pio_exists else "Run windows\\bootstrap.ps1.",
     )
 
-    app = Path("/Applications/CardBridge.app")
-    if app.exists():
-        try:
-            with (app / "Contents/Info.plist").open("rb") as stream:
-                info = plistlib.load(stream)
-            add(
-                checks,
-                "installed_app",
-                "ok",
-                f"{info.get('CFBundleShortVersionString', '?')} ({info.get('CFBundleVersion', '?')})",
-            )
-        except (OSError, plistlib.InvalidFileException) as exc:
-            add(checks, "installed_app", "warning", f"cannot read App metadata: {exc}")
-    else:
-        add(checks, "installed_app", "warning", "not installed")
-
-    driver = Path("/Library/Audio/Plug-Ins/HAL/CardBridgeMicrophone.driver")
+    installed = first_existing(
+        [
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+            / "PanPal"
+            / "CardBridge.exe",
+            local_app_data / "Programs" / "PanPal" / "CardBridge.exe",
+        ]
+    )
     add(
         checks,
-        "microphone_driver",
-        "ok" if driver.exists() else "warning",
-        "installed" if driver.exists() else "not installed; App will offer installation",
+        "installed_app",
+        "ok" if installed else "warning",
+        str(installed) if installed else "not found in standard locations",
     )
 
-    required = ["README.md", "AGENTS.md", "LICENSE", "docs/INSTALL.md", "platformio.ini"]
-    missing = [path for path in required if not (ROOT / path).exists()]
+    required = [
+        "README.md",
+        "LICENSE",
+        "platformio.ini",
+        "windows/bootstrap.ps1",
+        "windows/build.ps1",
+        "bridge/packaging/CardBridgeWindows.spec",
+    ]
+    missing = [relative for relative in required if not (ROOT / relative).exists()]
     add(
         checks,
         "project_contract",
         "ok" if not missing else "error",
-        "required entrypoints present" if not missing else f"missing: {', '.join(missing)}",
+        "required files present" if not missing else f"missing: {', '.join(missing)}",
     )
 
     errors = sum(item["status"] == "error" for item in checks)
     warnings = sum(item["status"] == "warning" for item in checks)
     result = {
-        "project": "PanPal",
-        "internal_compatibility_name": "CardBridge",
+        "project": manifest.get("name", "PanPal"),
         "release": release,
-        "minimum_os": minimum_os,
         "root": str(ROOT),
         "checks": checks,
         "summary": {"errors": errors, "warnings": warnings},
@@ -167,7 +175,9 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         for item in checks:
-            marker = {"ok": "OK", "warning": "WARN", "error": "ERROR"}[item["status"]]
+            marker = {"ok": "OK", "warning": "WARN", "error": "ERROR"}[
+                item["status"]
+            ]
             print(f"[{marker:5}] {item['name']}: {item['detail']}")
             if item.get("hint") and item["status"] != "ok":
                 print(f"        hint: {item['hint']}")

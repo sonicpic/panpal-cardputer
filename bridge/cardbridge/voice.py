@@ -142,7 +142,7 @@ class VoiceInputController:
         *,
         capture: WindowsCaptureManager | None = None,
         on_change: Callable[[], None] | None = None,
-        enter_delay_s: float = 1.0,
+        enter_delay_s: float = 1.4,
     ) -> None:
         self.config = config
         self.keyboard = keyboard
@@ -252,7 +252,7 @@ class VoiceInputController:
         timer.daemon = True
         self._enter_timer = timer
         timer.start()
-        LOG.info("Enter scheduled in %.1f seconds", self.enter_delay_s)
+        LOG.info("Enter scheduled in %.3f seconds", self.enter_delay_s)
 
     def _cancel_pending_enter(self) -> None:
         timer = self._enter_timer

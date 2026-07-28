@@ -10,55 +10,46 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-26
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-      - name: Verify release tag and public project contract
+          python-version: "3.12"
+      - name: Verify release tag
+        shell: pwsh
         run: |
-          tag_version=${GITHUB_REF_NAME#v}
-          project_version=$(python3 -c 'import json; print(json.load(open("version.json"))["release"])')
-          test "$tag_version" = "$project_version"
-          python3 tools/check_project.py
+          $projectVersion = (Get-Content -Raw version.json | ConvertFrom-Json).release
+          $tagVersion = $env:GITHUB_REF_NAME.TrimStart("v")
+          if ($tagVersion -ne $projectVersion) {
+            throw "Tag $tagVersion does not match version.json $projectVersion"
+          }
       - name: Install build tools
-        run: ./scripts/bootstrap.sh
-      - name: Import Developer ID certificate
-        env:
-          CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        shell: pwsh
         run: |
-          certificate=$RUNNER_TEMP/cardbridge.p12
-          keychain=$RUNNER_TEMP/cardbridge.keychain-db
-          echo "$CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
-          security import "$certificate" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$keychain"
-          security list-keychains -d user -s "$keychain" login.keychain-db
-      - name: Prepare Notary API key
-        env:
-          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_KEY_BASE64 }}
-        run: echo "$NOTARY_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-      - name: Build signed and notarized release
-        env:
-          CODE_SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION }}
-          REQUIRE_NOTARIZATION: "1"
-          NOTARY_KEY: ${{ runner.temp }}/notary.p8
-          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-          SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
-        run: macos/scripts/release.sh
+          choco install innosetup --no-progress -y
+          .\windows\bootstrap.ps1 -PythonExe python
+      - name: Build Windows release
+        shell: pwsh
+        run: .\windows\build.ps1 -SkipBootstrap
       - name: Create draft GitHub release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=${GITHUB_REF_NAME#v}
-          gh release create "$GITHUB_REF_NAME" \
-            macos/dist/release-"$version"/* \
-            --draft \
-            --title "Codex Deck $version" \
-            --notes-file release/RELEASE_NOTES.md
+          $versions = Get-Content -Raw version.json | ConvertFrom-Json
+          $assets = @(
+            "dist/installer/PanPal-$($versions.release)-setup.exe"
+            "dist/firmware/panpal-dapan-$($versions.firmware.version)-build$($versions.firmware.build).bin"
+            "dist/firmware/panpal-dapan.bin"
+            "dist/SHA256SUMS.txt"
+          )
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset)) {
+              throw "Missing release asset: $asset"
+            }
+          }
+          gh release create $env:GITHUB_REF_NAME $assets `
+            --draft `
+            --generate-notes `
+            --title "PanPal $env:GITHUB_REF_NAME"

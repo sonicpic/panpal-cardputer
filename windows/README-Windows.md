@@ -17,8 +17,8 @@ Hold G0 or `Fn+Space` to speak. Double-click G0 to lock a long recording and
 press it once to stop. Closing the window leaves the Bridge running; use the
 tray menu to open, restart, or exit it.
 
-When automatic Enter is enabled on the Cardputer, Bridge waits one second after ending voice
-input before submitting Enter. Starting another utterance during that second
+When automatic Enter is enabled on the Cardputer, Bridge waits 1400 ms after ending voice
+input before submitting Enter. Starting another utterance during that delay
 cancels the pending Enter.
 
 The microphone icon turns green only after the Bridge confirms that microphone
@@ -36,11 +36,15 @@ is only needed after pairing data is explicitly removed or reset.
 
 ## Codex status
 
-The Bridge uses the official app-server from the VS Code Codex extension,
-ChatGPT/Codex desktop app, or CLI to read their shared session database. It
-does not infer status from window titles. Optional shared lifecycle Hooks can
-be installed or removed in the settings UI; restart Codex and approve its
-trust prompt yourself.
+Local session monitoring is always enabled. The Bridge uses the official
+app-server from the VS Code Codex extension, ChatGPT/Codex desktop app, or CLI
+to read the shared task list every three seconds, then reads lifecycle markers
+from each task's rollout file. It does not infer status from window titles.
+
+Optional Hooks add immediate tool, permission, and user-input events. The
+**Enable Hooks enhancement** button controls only this extra event source;
+task history and basic running/completed status remain available when Hooks
+are disabled. Restart Codex and approve its trust prompt yourself when shown.
 
 CLI equivalents remain available:
 
