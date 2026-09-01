@@ -1,4 +1,4 @@
 pyinstaller==6.21.0
 pyinstaller-hooks-contrib==2026.6
-packaging==26.2
+packaging==26.3
 altgraph==0.17.5
